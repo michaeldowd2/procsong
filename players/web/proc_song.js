@@ -1,5 +1,5 @@
 const song_01_link =
-  'https://www.dropbox.com/scl/fi/jp1bcko1vm1o6pi04p8lr/song_1.zip?rlkey=baxfsytavcwezi85798j4os73&st=diyiihf8&dl=0';
+  'https://www.dropbox.com/scl/fi/19z670l6v810xwgaj4lcc/song_1.zip?rlkey=3jogpegrxn3trgvrgakme9c9r&st=l5y9caok&dl=0';
 
 const FADE_SEC = 0.008;
 const LOOKAHEAD_SEC = 1;
@@ -108,11 +108,24 @@ class ProcsongEngine {
   reset(seed) {
     this.rng = new ProcsongRNG(seed);
     this.activeParts = new Map();
-    this.nextTick = new Map();
+    this.nextLoopTick = new Map();
+    this.nextEvalTick = new Map();
+    this.loopsRemaining = new Map();
     for (const track of this.tracks) {
       this.activeParts.set(track.name, 'SILENT');
-      this.nextTick.set(track.name, 0);
+      this.nextLoopTick.set(track.name, 0);
+      this.nextEvalTick.set(track.name, 0);
+      this.loopsRemaining.set(track.name, 0);
     }
+  }
+
+  loopSeconds(track) {
+    const sec = Math.round(track.part_duration);
+    return sec > 0 ? sec : 1;
+  }
+
+  cycleSeconds(track) {
+    return this.loopSeconds(track) * Math.max(1, Math.round(track.repeats) || 1);
   }
 
   activeOfType(type) {
@@ -145,12 +158,7 @@ class ProcsongEngine {
     });
   }
 
-  cycleSeconds(track) {
-    const sec = Math.round(track.part_duration * track.repeats);
-    return sec > 0 ? sec : 1;
-  }
-
-  evaluateTrack(track, tick) {
+  selectPart(track) {
     const rPart = this.rng.nextFloat();
     const rSilence = this.rng.nextFloat();
     const candidates = this.candidatesFor(track);
@@ -159,24 +167,48 @@ class ProcsongEngine {
       const chosen = weightedSelect(candidates, rPart);
       if (!(rSilence < track.probability_silence)) selected = chosen.path;
     }
-    const nextTick = tick + this.cycleSeconds(track);
-    this.activeParts.set(track.name, selected);
-    this.nextTick.set(track.name, nextTick);
-    return { track, rPart, rSilence, selected, nextTick };
+    return { rPart, rSilence, selected };
+  }
+
+  pulseTrack(track, tick) {
+    let rPart;
+    let rSilence;
+    let evaluated = false;
+    if ((this.loopsRemaining.get(track.name) || 0) <= 0) {
+      const choice = this.selectPart(track);
+      rPart = choice.rPart;
+      rSilence = choice.rSilence;
+      evaluated = true;
+      this.activeParts.set(track.name, choice.selected);
+      this.loopsRemaining.set(track.name, Math.max(1, Math.round(track.repeats) || 1));
+      this.nextEvalTick.set(track.name, tick + this.cycleSeconds(track));
+    }
+    const selected = this.activeParts.get(track.name);
+    this.loopsRemaining.set(track.name, this.loopsRemaining.get(track.name) - 1);
+    this.nextLoopTick.set(track.name, tick + this.loopSeconds(track));
+    return {
+      track,
+      selected,
+      rPart,
+      rSilence,
+      evaluated,
+      nextTick: this.nextEvalTick.get(track.name),
+      nextLoopTick: this.nextLoopTick.get(track.name),
+    };
   }
 
   peekNextTick() {
     let soonest = Infinity;
-    for (const tick of this.nextTick.values()) {
+    for (const tick of this.nextLoopTick.values()) {
       if (tick < soonest) soonest = tick;
     }
     return soonest;
   }
 
   evaluateDue(tick) {
-    const due = this.tracks.filter((track) => this.nextTick.get(track.name) === tick);
+    const due = this.tracks.filter((track) => this.nextLoopTick.get(track.name) === tick);
     due.sort(compareTracks);
-    return due.map((track) => this.evaluateTrack(track, tick));
+    return due.map((track) => this.pulseTrack(track, tick));
   }
 }
 
@@ -555,23 +587,21 @@ class WebPlayer {
     this.sources.push(src);
   }
 
-  schedulePart(track, partPath, startSec) {
+  startClipAt(trackName, partPath, startSec) {
     if (partPath === 'SILENT') return;
     const buffer = this.buffers.get(partPath);
     if (!buffer) return;
-    const repeats = Math.max(1, track.repeats | 0);
-    const step = track.part_duration;
-    for (let i = 0; i < repeats; i += 1) {
-      const when = this.audioOrigin + startSec + i * step;
-      this.startFullClip(track.name, buffer, when);
-    }
+    this.startFullClip(trackName, buffer, this.audioOrigin + startSec);
   }
 
   applyResults(tick, results) {
-    const active = new Map(this.engine.activeParts);
-    this.renderTracks(this.engine.tracks, active, this.engine.nextTick);
+    this.renderTracks(
+      this.engine.tracks,
+      new Map(this.engine.activeParts),
+      this.engine.nextLoopTick,
+    );
     for (const result of results) {
-      this.schedulePart(result.track, result.selected, tick);
+      this.startClipAt(result.track.name, result.selected, tick);
     }
   }
 
@@ -589,24 +619,27 @@ class WebPlayer {
     this.timer = setTimeout(() => this.schedulerPulse(), 1000 / CLOCK_HZ);
   }
 
-  renderTracks(tracks, activeParts, nextTicks) {
+  renderTracks(tracks, activeParts, nextStarts) {
     this.ui.tracks.replaceChildren();
     for (const track of tracks) {
       const part = activeParts?.get(track.name) || 'SILENT';
-      const next = nextTicks?.get(track.name);
+      const next = nextStarts?.get(track.name);
       const row = document.createElement('tr');
       const nameCell = document.createElement('td');
       nameCell.textContent = track.name;
       const typeCell = document.createElement('td');
       typeCell.className = `type ${track.type}`;
       typeCell.textContent = track.type;
+      const lengthCell = document.createElement('td');
+      lengthCell.className = 'clock';
+      lengthCell.textContent = `${Math.round(track.part_duration) || 0}s × ${track.repeats || 1}`;
       const partCell = document.createElement('td');
       partCell.className = `part ${part === 'SILENT' ? 'silent' : ''}`;
       partCell.textContent = part === 'SILENT' ? 'silent' : part;
       const tickCell = document.createElement('td');
       tickCell.className = 'clock';
       tickCell.textContent = next == null ? '—' : `${next} s`;
-      row.append(nameCell, typeCell, partCell, tickCell);
+      row.append(nameCell, typeCell, lengthCell, partCell, tickCell);
       this.ui.tracks.appendChild(row);
     }
   }
