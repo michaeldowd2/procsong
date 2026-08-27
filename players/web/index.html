@@ -1,0 +1,245 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Procsong Player</title>
+  <style>
+    :root {
+      --bg: #12110f;
+      --panel: #1c1b18;
+      --line: #2e2c27;
+      --text: #ece7dc;
+      --muted: #9a9488;
+      --accent: #e2b15a;
+      --primary: #e2b15a;
+      --secondary: #8fbfa0;
+      --standard: #8aa7c7;
+      --silent: #6d6860;
+      --fail: #d36b5e;
+      --pass: #8fbfa0;
+    }
+
+    * { box-sizing: border-box; }
+
+    html, body {
+      margin: 0;
+      min-height: 100%;
+      background: var(--bg);
+      color: var(--text);
+      font: 15px/1.45 "Segoe UI", system-ui, sans-serif;
+    }
+
+    body {
+      max-width: 880px;
+      margin: 0 auto;
+      padding: 32px 20px 48px;
+    }
+
+    h1 {
+      font-size: 1.45rem;
+      font-weight: 650;
+      letter-spacing: 0.02em;
+      margin: 0 0 4px;
+    }
+
+    .lede {
+      color: var(--muted);
+      margin: 0 0 24px;
+    }
+
+    .panel {
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 12px;
+      padding: 16px;
+      margin-bottom: 14px;
+    }
+
+    label {
+      display: block;
+      color: var(--muted);
+      font-size: 12px;
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
+      margin-bottom: 6px;
+    }
+
+    input[type="text"],
+    input[type="number"] {
+      width: 100%;
+      background: #141311;
+      color: var(--text);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+      padding: 8px 10px;
+      font: inherit;
+    }
+
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 140px;
+      gap: 12px;
+      margin-bottom: 12px;
+    }
+
+    .controls {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+
+    button {
+      background: var(--accent);
+      color: #1a160f;
+      border: 0;
+      border-radius: 8px;
+      padding: 8px 14px;
+      font: 650 14px/1 "Segoe UI", system-ui, sans-serif;
+      cursor: pointer;
+    }
+
+    button.secondary {
+      background: transparent;
+      color: var(--text);
+      border: 1px solid var(--line);
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: default;
+    }
+
+    .volume {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      color: var(--muted);
+      margin-left: auto;
+    }
+
+    .volume input { width: 110px; }
+
+    .status {
+      margin-top: 12px;
+      color: var(--muted);
+      min-height: 1.45em;
+    }
+
+    .progress {
+      display: none;
+      height: 6px;
+      background: #141311;
+      border-radius: 99px;
+      overflow: hidden;
+      margin-top: 10px;
+    }
+
+    .progress > span {
+      display: block;
+      height: 100%;
+      width: 0%;
+      background: var(--accent);
+    }
+
+    table {
+      width: 100%;
+      border-collapse: collapse;
+    }
+
+    th, td {
+      text-align: left;
+      padding: 8px 6px;
+      border-bottom: 1px solid var(--line);
+      vertical-align: top;
+    }
+
+    th {
+      color: var(--muted);
+      font-size: 12px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .type {
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+    }
+
+    .type.primary { color: var(--primary); }
+    .type.secondary { color: var(--secondary); }
+    .type.standard { color: var(--standard); }
+
+    .part.silent {
+      color: var(--silent);
+      font-style: italic;
+    }
+
+    .clock {
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+    }
+
+    .check.pass { color: var(--pass); }
+    .check.fail { color: var(--fail); }
+
+    @media (max-width: 640px) {
+      .row { grid-template-columns: 1fr; }
+      .volume { margin-left: 0; }
+    }
+  </style>
+</head>
+<body>
+  <h1>Procsong Player</h1>
+  <p class="lede">Loads a Procsong zip in memory and plays an infinite deterministic arrangement from a seed.</p>
+
+  <div class="panel">
+    <div class="row">
+      <div>
+        <label for="zipUrl">Package zip URL</label>
+        <input id="zipUrl" type="text" spellcheck="false">
+      </div>
+      <div>
+        <label for="seed">Seed</label>
+        <input id="seed" type="text" value="12345" spellcheck="false">
+      </div>
+    </div>
+    <div class="controls">
+      <button id="loadBtn" type="button">Load package</button>
+      <button id="playBtn" type="button" disabled>Play</button>
+      <button id="stopBtn" type="button" class="secondary" disabled>Stop</button>
+      <label class="volume">
+        Volume
+        <input id="volume" type="range" min="0" max="1" step="0.01" value="0.85">
+      </label>
+    </div>
+    <div id="status" class="status">Ready to load the Dropbox package.</div>
+    <div id="progress" class="progress"><span></span></div>
+  </div>
+
+  <div class="panel">
+    <table>
+      <thead>
+        <tr>
+          <th>Track</th>
+          <th>Type</th>
+          <th>Now playing</th>
+          <th>Next eval</th>
+        </tr>
+      </thead>
+      <tbody id="tracks">
+        <tr><td colspan="4" class="clock">Load a package to see tracks.</td></tr>
+      </tbody>
+    </table>
+    <p id="clock" class="clock"></p>
+    <p id="conformance" class="status"></p>
+  </div>
+
+  <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
+  <script src="proc_song.js"></script>
+</body>
+</html>
