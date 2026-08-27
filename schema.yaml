@@ -1,0 +1,83 @@
+$schema: "http://json-schema.org/draft-07/schema#"
+title: "Procedural Song Definition Schema"
+description: "Schema for clip-based deterministic infinite music generation song definition YAML files."
+type: object
+additionalProperties:
+  $ref: "#/definitions/Track"
+
+definitions:
+  Track:
+    type: object
+    required:
+      - type
+      - parts
+    properties:
+      type:
+        type: string
+        enum:
+          - primary
+          - secondary
+          - standard
+        description: "Type of the track (primary, secondary, or standard)."
+      probability_silence:
+        type: number
+        minimum: 0
+        maximum: 1
+        description: "Probability of silence for this track during generation."
+      part_duration:
+        type: number
+        minimum: 0
+        description: "Duration of each part."
+      repeats:
+        type: integer
+        minimum: 1
+        description: "Number of repeats for parts."
+      parts:
+        type: array
+        description: "List of audio parts belonging to this track."
+        items:
+          $ref: "#/definitions/Part"
+    allOf:
+      - if:
+          properties:
+            type:
+              const: primary
+        then:
+          properties:
+            parts:
+              items:
+                not:
+                  required:
+                    - allowed_primary_parts
+      - if:
+          properties:
+            type:
+              const: secondary
+        then:
+          properties:
+            parts:
+              items:
+                not:
+                  required:
+                    - allowed_secondary_parts
+
+  Part:
+    description: "A part entry, which can be a simple string or an object specifying options."
+    oneOf:
+      - type: string
+      - type: object
+        properties:
+          weight:
+            type: number
+            minimum: 0
+            description: "Optional selection weight for the part."
+          allowed_primary_parts:
+            type: array
+            items:
+              type: string
+            description: "List of primary track parts allowed to pair with this part."
+          allowed_secondary_parts:
+            type: array
+            items:
+              type: string
+            description: "List of secondary track parts allowed to pair with this part."

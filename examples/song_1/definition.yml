@@ -1,0 +1,200 @@
+Drums:
+  type: "primary"
+  probability_silence: 0.2
+  part_duration: 20
+  repeats: 3
+  parts:
+    - Drums/Drums 1:
+      weight: 0.8
+    - Drums/Drums 2:
+      weight: 0.8
+    - Drums/Drums 3:
+      weight: 1
+    - Drums/Drums 4:
+      weight: 1
+    - Drums/Drums 5:
+      weight: 1
+    - Drums/Drums 6:
+      weight: 1
+
+Organ:
+  type: "secondary"
+  probability_silence: 0.2
+  part_duration: 20
+  repeats: 3
+  parts:
+    - Organ/Organ 1:
+      weight: 1
+      allowed_primary_parts:
+        - Drums/Drums 1
+        - Drums/Drums 2
+        - Drums/Drums 3
+        - Drums/Drums 4
+        - Drums/Drums 5
+        - Drums/Drums 6
+    - Organ/Organ 2:
+      weight: 1
+      allowed_primary_parts:
+        - Drums/Drums 1
+        - Drums/Drums 2
+        - Drums/Drums 3
+        - Drums/Drums 4
+        - Drums/Drums 5
+        - Drums/Drums 6
+    - Organ/Organ 3:
+      weight: 1
+      allowed_primary_parts:
+        - Drums/Drums 1
+        - Drums/Drums 2
+        - Drums/Drums 3
+        - Drums/Drums 4
+        - Drums/Drums 5
+        - Drums/Drums 6
+    - Organ/Organ 4:
+      weight: 1
+      allowed_primary_parts:
+        - Drums/Drums 1
+        - Drums/Drums 2
+        - Drums/Drums 3
+        - Drums/Drums 4
+        - Drums/Drums 5
+        - Drums/Drums 6
+    - Organ/Organ 5:
+      weight: 1
+      allowed_primary_parts:
+        - Drums/Drums 3
+        - Drums/Drums 4
+        - Drums/Drums 5
+        - Drums/Drums 6
+    - Organ/Organ 6:
+      weight: 1
+      allowed_primary_parts:
+        - Drums/Drums 3
+        - Drums/Drums 4
+        - Drums/Drums 5
+        - Drums/Drums 6
+    - Organ/Organ 7:
+      weight: 1
+      allowed_primary_parts:
+        - Drums/Drums 3
+        - Drums/Drums 4
+        - Drums/Drums 5
+        - Drums/Drums 6
+    - Organ/Organ 8:
+      weight: 1
+      allowed_primary_parts:
+        - Drums/Drums 3
+        - Drums/Drums 4
+        - Drums/Drums 5
+        - Drums/Drums 6
+
+Bass:
+  type: "standard"
+  probability_silence: 0.1
+  part_duration: 20
+  repeats: 3
+  parts:
+    - Bass/Bass 1:
+      allowed_secondary_parts:
+        - Organ/Organ 1
+        - Organ/Organ 2
+        - Organ/Organ 3
+        - Organ/Organ 4
+    - Bass/Bass 2:
+      allowed_secondary_parts:
+        - Organ/Organ 1
+        - Organ/Organ 2
+        - Organ/Organ 3
+        - Organ/Organ 4
+    - Bass/Bass 3:
+      allowed_secondary_parts:
+        - Organ/Organ 1
+        - Organ/Organ 2
+        - Organ/Organ 3
+        - Organ/Organ 4
+    - Bass/Bass 4:
+      allowed_secondary_parts:
+        - Organ/Organ 1
+        - Organ/Organ 2
+        - Organ/Organ 3
+        - Organ/Organ 4
+    - Bass/Bass 5:
+      allowed_secondary_parts:
+        - Organ/Organ 5
+        - Organ/Organ 6
+        - Organ/Organ 7
+        - Organ/Organ 8
+
+Lead:
+  type: "standard"
+  probability_silence: 0.3
+  part_duration: 20
+  repeats: 3
+  parts:
+    - Lead/Mellotron 1:
+      allowed_secondary_parts:
+        - Organ/Organ 1
+        - Organ/Organ 2
+        - Organ/Organ 3
+        - Organ/Organ 4
+    - Lead/Mellotron 2:
+      allowed_secondary_parts:
+        - Organ/Organ 1
+        - Organ/Organ 2
+        - Organ/Organ 3
+        - Organ/Organ 4
+    - Lead/Mellotron 3:
+      allowed_secondary_parts:
+        - Organ/Organ 1
+        - Organ/Organ 2
+        - Organ/Organ 3
+        - Organ/Organ 4
+    - Lead/Mellotron 4:
+      allowed_secondary_parts:
+        - Organ/Organ 1
+        - Organ/Organ 2
+        - Organ/Organ 3
+        - Organ/Organ 4
+    - Lead/Mellotron 5:
+      allowed_secondary_parts:
+        - Organ/Organ 5
+        - Organ/Organ 6
+        - Organ/Organ 7
+        - Organ/Organ 8
+    - Lead/Mellotron 6:
+      allowed_secondary_parts:
+        - Organ/Organ 5
+        - Organ/Organ 6
+        - Organ/Organ 7
+        - Organ/Organ 8
+
+Percussion:
+  type: "standard"
+  probability_silence: 0.25
+  part_duration: 20
+  repeats: 3
+  parts:
+    - Percussion/Percussion 1:
+      allowed_secondary_parts:
+        - Organ/Organ 1
+        - Organ/Organ 2
+        - Organ/Organ 3
+        - Organ/Organ 4
+    - Percussion/Percussion 2:
+      allowed_secondary_parts:
+        - Organ/Organ 1
+        - Organ/Organ 2
+        - Organ/Organ 3
+        - Organ/Organ 4
+    - Percussion/Percussion 3:
+      allowed_secondary_parts:
+        - Organ/Organ 5
+        - Organ/Organ 6
+        - Organ/Organ 7
+        - Organ/Organ 8
+    - Percussion/Percussion 4:
+      allowed_secondary_parts:
+        - Organ/Organ 5
+        - Organ/Organ 6
+        - Organ/Organ 7
+        - Organ/Organ 8
