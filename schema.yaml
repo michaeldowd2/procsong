@@ -23,15 +23,15 @@ definitions:
         type: number
         minimum: 0
         maximum: 1
-        description: "Probability of silence for this track during generation."
+        description: "After a part is chosen, probability that this track is muted for the cycle. Mute does not clear the chosen part; dependents still see it."
       part_duration:
         type: number
         minimum: 0
-        description: "Duration of each part."
+        description: "Start-to-start interval in seconds. The audio file is typically longer; play the full file and start the next clip at this interval so tails overlap."
       repeats:
         type: integer
         minimum: 1
-        description: "Number of repeats for parts."
+        description: "Number of starts of the same chosen part (and mute flag) before the track is evaluated again."
       parts:
         type: array
         description: "List of audio parts belonging to this track."
@@ -75,9 +75,9 @@ definitions:
             type: array
             items:
               type: string
-            description: "List of primary track parts allowed to pair with this part."
+            description: "Primary parts this clip may pair with. Matching uses the primary track's chosen part, including when that track is muted."
           allowed_secondary_parts:
             type: array
             items:
               type: string
-            description: "List of secondary track parts allowed to pair with this part."
+            description: "Secondary parts this clip may pair with. Matching uses the secondary track's chosen part, including when that track is muted."

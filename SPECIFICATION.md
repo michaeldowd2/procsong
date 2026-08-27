@@ -1,215 +1,207 @@
 # Procsong Player Conformance Specification
 
-**Version:** 1.0.0  
-**Status:** Standard Specification  
-**Subject:** Deterministic Clip-Based Infinite Music Generation Engine Standard
+**Version:** 1.1.0  
+**Status:** Standard Specification
 
 ---
 
-## 1. Overview & Goal
+## 1. Goal
 
-The **Procsong** specification defines the playback engine requirements for clip-based, procedural, infinite music generation. 
+A Procsong player turns a package (`definition.yml` plus audio clips) and a 64-bit integer **seed** into an infinite, deterministic arrangement.
 
-The primary requirement of Procsong is **100% Cross-Platform Determinism**:
-Given an identical Procsong package (containing `definition.yml` and audio clips) and an identical 64-bit integer **Seed ($S$)**, any compliant player implemented in **any programming language or audio framework MUST produce an identical playback schedule**.
+Given the same package and seed, every compliant player **MUST** produce the same sequence of:
 
----
+1. **Chosen parts** (which clip was selected on each track)
+2. **Mute flags** (whether that clip is audible)
+3. **Start times** (when each clip is triggered)
 
-## 2. Requirement Keywords (RFC 2119 / RFC 8174)
+Audio engines may differ in mixing, but the schedule of *what starts when* **MUST** match.
 
-The key words **MUST**, **MUST NOT**, **REQUIRED**, **SHALL**, **SHALL NOT**, **SHOULD**, **SHOULD NOT**, **RECOMMENDED**, **NOT RECOMMENDED**, **MAY**, and **OPTIONAL** in this document are to be interpreted as described in [RFC 2119](https://www.ietf.org/rfc/rfc2119.txt) and [RFC 8174](https://www.ietf.org/rfc/rfc8174.txt).
-
----
-
-## 3. Data Model & Package Structure
-
-### 3.1 Package Files
-A compliant Procsong package **MUST** be structured as follows:
-- `definition.yml` (**REQUIRED**): The song structure YAML matching `schema.yaml`.
-- Audio Clip Subdirectories (**REQUIRED**): Relative audio clip files referenced in `definition.yml`.
-
-### 3.2 Track Types
-Every track defined in `definition.yml` belongs to one of three types:
-1. `primary`: Root driving tracks (e.g. Drums).
-2. `secondary`: Harmonic/rhythmic tracks depending on Primary parts (e.g. Rhythm Organ/Guitar).
-3. `standard`: Supplementary tracks depending on Primary and/or Secondary parts (e.g. Bass, Lead, Percussion).
+The key words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are used as in RFC 2119.
 
 ---
 
-## 4. Mandatory Pseudorandom Number Generator (PRNG)
+## 2. Package
 
-Compliant players **MUST NOT** use language-native random functions (e.g. `Math.random()`, `rand()`). Players **MUST** implement the following 64-bit Linear Congruential Generator (LCG).
+A package **MUST** contain:
 
-### 4.1 LCG Mathematical Definition
+- `definition.yml` matching `schema.yaml`
+- Audio files whose relative paths match the part names in that YAML (typically `Track/Part.wav`)
 
-- **State Size:** 64-bit unsigned integer ($S_{64}$).
-- **Multiplier ($A$):** `6364136223846793005` (`0x5851F42D4C957F2D`)
-- **Increment ($C$):** `1442695040888963407` (`0x14057B7EF767814F`)
-- **Modulus:** $2^{64}$ (overflow wraps naturally in 64-bit unsigned arithmetic).
+Each top-level YAML key is a **track**. Each track **MUST** have:
 
-#### State Advance Formula:
-$$S_{n+1} = (S_n \times 6364136223846793005 + 1442695040888963407) \pmod{2^{64}}$$
+| Field | Meaning |
+| :--- | :--- |
+| `type` | `primary`, `secondary`, or `standard` |
+| `parts` | Candidate clips for this track |
+| `part_duration` | Start-to-start interval in **seconds** (not the wav length) |
+| `repeats` | How many starts of the same choice before the next evaluation |
+| `probability_silence` | Chance the chosen clip is muted (0–1, default 0) |
 
-#### Floating-Point Extraction ($R \in [0.0, 1.0)$):
-$$U_{32} = S_{n+1} \gg 32$$
-$$\text{next\_float}() = \frac{U_{32}}{4294967296.0}$$
+**Track roles**
 
-### 4.2 Reference PRNG Implementations
+- `primary` — driving tracks (e.g. drums). Parts are always eligible.
+- `secondary` — depend on the **chosen** primary part (e.g. organ).
+- `standard` — depend on the **chosen** primary and/or secondary parts (e.g. bass, lead).
 
-#### Python
+---
+
+## 3. Two clocks per track (independent)
+
+Tracks **MUST NOT** share a global bar or wait for the longest track.
+
+Each track has its own clocks, in **integer seconds**:
+
+| Clock | Step | Purpose |
+| :--- | :--- | :--- |
+| **Start clock** | `part_duration` | Trigger the next clip start (or a muted start) |
+| **Evaluation clock** | `part_duration × repeats` | Pick a new chosen part and mute flag |
+
+Example: a track with `part_duration: 15` and `repeats: 4` starts clips at 0, 15, 30, 45, then **evaluates** again at 60. A track with `part_duration: 20` and `repeats: 3` starts at 0, 20, 40 and evaluates at 60. At t = 15 the 15-second track starts again while the 20-second track is still on its first clip. That phase offset is intentional.
+
+Players **MUST** round `part_duration` to the nearest integer second ≥ 1.
+
+At t = 0 every track is due. After that, the master scheduler **MUST** fire whichever track’s next **start** is soonest. When several tracks share the same second, evaluate them in this order:
+
+1. All `primary` tracks (YAML declaration order)
+2. All `secondary` tracks (YAML declaration order)
+3. All `standard` tracks (YAML declaration order)
+
+On a **start** that is not an evaluation, the track keeps its current chosen part and mute flag and only retriggers audio (if not muted).
+
+On an **evaluation**, the player **MUST** run the selection algorithm below, then retrigger.
+
+---
+
+## 4. Chosen part vs mute (silence)
+
+Silence is **not** “no part was chosen.”
+
+Each track stores two values after every evaluation:
+
+| Field | Meaning |
+| :--- | :--- |
+| `ChosenPart` | Clip path (e.g. `Drums/Drums 1`), or none if no candidate existed |
+| `Muted` | Whether the clip is audible |
+
+**Mute is volume.** It is applied **after** a part is chosen. A muted primary or secondary track **MUST** still expose `ChosenPart` to other tracks.
+
+**MUST NOT** treat a muted track as having no part. Downstream candidate filters **MUST** use `ChosenPart` and **MUST** ignore `Muted`.
+
+### 4.1 Evaluation (exactly two PRNG draws)
+
+On every evaluation, including t = 0, draw exactly two floats from the PRNG in this order, even if there are no candidates and even if the track will be muted:
+
+1. `R_part` — weighted pick among candidates
+2. `R_silence` — mute check
+
+### 4.2 Candidates
+
+Build candidate list `C` from the track’s `parts`:
+
+- **Primary:** every part is a candidate.
+- **Secondary:** a part is a candidate if `allowed_primary_parts` is omitted, **or** at least one current primary `ChosenPart` is in that list. Mute on the primary does not matter.
+- **Standard:** a part is a candidate if every *defined* constraint matches:
+  - `allowed_primary_parts` (if present) matches a current primary `ChosenPart`
+  - `allowed_secondary_parts` (if present) matches a current secondary `ChosenPart`
+
+Omitted constraint = no restriction. Empty list = match nothing.
+
+### 4.3 Choose, then maybe mute
+
+1. If `C` is empty: `ChosenPart = none`, `Muted = true`. Still consume both PRNG draws.
+2. If `C` is non-empty:
+   - `W` = sum of weights (default weight 1)
+   - `T_target = R_part × W`
+   - Walk `C` in declaration order; pick the first part whose cumulative weight `> T_target` (last part if none)
+   - `ChosenPart` = that part’s path
+   - `Muted = true` if `R_silence < probability_silence`, otherwise `Muted = false`
+
+`ChosenPart` **MUST** stay set for the whole evaluation cycle (`repeats` starts), including while `Muted` is true.
+
+---
+
+## 5. Audio
+
+`part_duration` is **when the next clip may start**, not how long the wav is. Clip files are usually **longer** than `part_duration` (e.g. duration 20, wav 22 seconds).
+
+Players **MUST**:
+
+- Start the **entire** wav at each start time (do not stretch, squeeze, or crop to `part_duration`)
+- Leave the previous wav playing until it ends naturally
+- Allow **at least two overlapping voices per track** so the tail of clip N mixes with the start of clip N+1
+- Start audio only when `ChosenPart` is set **and** `Muted` is false
+- Resample all clips to one mix rate (44.1 kHz or 48 kHz recommended)
+
+Players **SHOULD** apply a short (5–10 ms) equal-power fade at the **natural** start and end of each wav to avoid clicks. That fade is not a substitute for the overlap described above, and **MUST NOT** cut the wav off at `part_duration`.
+
+---
+
+## 6. PRNG
+
+Players **MUST NOT** use language-native random (`Math.random()`, `rand()`, etc.). Use this 64-bit LCG:
+
+- Multiplier `A` = `6364136223846793005`
+- Increment `C` = `1442695040888963407`
+- Modulus `2^64` (unsigned wrap)
+
+```
+state = (state * A + C) mod 2^64
+next_float = (state >> 32) / 4294967296.0    // in [0, 1)
+```
+
+Initial `state` = seed masked to 64 bits.
+
+### Reference
+
 ```python
 class ProcsongRNG:
     def __init__(self, seed: int):
         self.state = seed & 0xFFFFFFFFFFFFFFFF
-        
+
     def next_float(self) -> float:
         self.state = (self.state * 6364136223846793005 + 1442695040888963407) & 0xFFFFFFFFFFFFFFFF
-        upper_32 = self.state >> 32
-        return upper_32 / 4294967296.0
+        return (self.state >> 32) / 4294967296.0
 ```
 
-#### JavaScript / TypeScript (using `BigInt`)
-```typescript
+```javascript
 class ProcsongRNG {
-    private state: bigint;
-
-    constructor(seed: number | bigint) {
-        this.state = BigInt(seed) & 0xFFFFFFFFFFFFFFFFn;
-    }
-
-    nextFloat(): number {
-        this.state = (this.state * 6364136223846793005n + 1442695040888963407n) & 0xFFFFFFFFFFFFFFFFn;
-        const upper32 = Number(this.state >> 32n);
-        return upper32 / 4294967296.0;
-    }
+  constructor(seed) {
+    this.state = BigInt(seed) & 0xFFFFFFFFFFFFFFFFn;
+  }
+  nextFloat() {
+    this.state = (this.state * 6364136223846793005n + 1442695040888963407n) & 0xFFFFFFFFFFFFFFFFn;
+    return Number(this.state >> 32n) / 4294967296.0;
+  }
 }
 ```
 
-#### C++
 ```cpp
-#include <cstdint>
-
-class ProcsongRNG {
-private:
-    uint64_t state;
-public:
-    ProcsongRNG(uint64_t seed) : state(seed) {}
-
-    double next_float() {
-        state = state * 6364136223846793005ULL + 1442695040888963407ULL;
-        uint32_t upper32 = static_cast<uint32_t>(state >> 32);
-        return static_cast<double>(upper32) / 4294967296.0;
-    }
-};
+double next_float() {
+    state = state * 6364136223846793005ULL + 1442695040888963407ULL;
+    return double(uint32_t(state >> 32)) / 4294967296.0;
+}
 ```
 
-#### Rust
 ```rust
-pub struct ProcsongRNG {
-    state: u64,
-}
-
-impl ProcsongRNG {
-    pub fn new(seed: u64) -> Self {
-        ProcsongRNG { state: seed }
-    }
-
-    pub fn next_float(&mut self) -> f64 {
-        self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
-        let upper32 = (self.state >> 32) as u32;
-        (upper32 as f64) / 4294967296.0
-    }
-}
+self.state = self.state.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+(self.state >> 32) as u32 as f64 / 4294967296.0
 ```
 
 ---
 
-## 5. Track Evaluation & Selection Algorithm
+## 7. Golden test
 
-### 5.1 Constant 2-Draw PRNG Consumption Rule
-Whenever any track is evaluated (whether at $t = 0$ or during playback), the player **MUST** draw exactly **two** random floating-point values from the PRNG in strict order:
-1. $R_{\text{part}} = \text{next\_float}()$ — Used for weighted candidate part selection.
-2. $R_{\text{silence}} = \text{next\_float}()$ — Used for the silence probability check.
+Package `examples/song_1`, seed `12345`. At t = 0 every track evaluates (primary → secondary → standard).
 
-> **CRITICAL:** Both $R_{\text{part}}$ and $R_{\text{silence}}$ **MUST** be drawn for every track evaluation regardless of whether the track has zero candidate parts or becomes silent. This ensures the PRNG state stream remains strictly synchronized.
+| Order | Track | Type | R_part | R_silence | ChosenPart | Muted | Next evaluation |
+| :--- | :--- | :--- | :--- | :--- | :--- | :--- | :--- |
+| 1 | Drums | primary | 0.10957861 | 0.26538530 | `Drums/Drums 1` | no | 60 s |
+| 2 | Organ | secondary | 0.88562399 | 0.83573741 | `Organ/Organ 4` | no | 60 s |
+| 3 | Bass | standard | 0.32563106 | 0.56047223 | `Bass/Bass 2` | no | 60 s |
+| 4 | Lead | standard | 0.79386844 | 0.39149387 | `Lead/Mellotron 4` | no | 60 s |
+| 5 | Percussion | standard | 0.81517936 | 0.18816854 | `Percussion/Percussion 2` | **yes** | 60 s |
 
-### 5.2 Priority Phase Sorting Rule
-When multiple tracks are scheduled for evaluation at the exact same millisecond tick $t$, they **MUST** be evaluated in the following priority order:
-1. **Phase 1:** `primary` tracks (in YAML declaration order).
-2. **Phase 2:** `secondary` tracks (in YAML declaration order).
-3. **Phase 3:** `standard` tracks (in YAML declaration order).
+Percussion **MUST** still have `ChosenPart = Percussion/Percussion 2`. It is muted because `R_silence < probability_silence`. Other tracks **MUST** be able to depend on that chosen part (and on any muted primary/secondary) as if it were audible.
 
-### 5.3 Candidate Filtering Rules
-Before performing selection on a track $T$, the player **MUST** filter $T$'s `parts` list to build the candidate list $C$:
-
-- **Primary Track Part:** Included in $C$ unconditionally.
-- **Secondary Track Part:** Included in $C$ **IF AND ONLY IF**:
-  - `allowed_primary_parts` is omitted/null, **OR**
-  - At least one currently active (non-silent) Primary track part matches an entry in `allowed_primary_parts`.
-- **Standard Track Part:** Included in $C$ **IF AND ONLY IF**:
-  - `allowed_primary_parts` (if defined) matches at least one active Primary track part, **AND**
-  - `allowed_secondary_parts` (if defined) matches at least one active Secondary track part.
-
-### 5.4 Weighted Selection Algorithm
-If candidates list $C = [P_1, P_2, \dots, P_N]$ is non-empty:
-1. Compute total weight $W = \sum_{i=1}^{N} \text{weight}(P_i)$. (Default weight $= 1.0$ if omitted).
-2. Calculate target threshold: $T_{\text{target}} = R_{\text{part}} \times W$.
-3. Iterate candidates in declaration order, accumulating weight $\text{Cum}_k = \sum_{i=1}^{k} \text{weight}(P_i)$.
-4. Select the **first** candidate $P_k$ where $\text{Cum}_k > T_{\text{target}}$. (If numerical precision reaches end of list, select $P_N$).
-
-### 5.5 Silence Decision
-1. If candidate list $C$ is empty, the track result **MUST** be set to `SILENT`.
-2. If $R_{\text{silence}} < \text{probability\_silence}$, the track result **MUST** be set to `SILENT`.
-3. Otherwise, the track result **MUST** be the selected part $P_k$.
-
----
-
-## 6. Master Timeline Scheduler Architecture
-
-To support tracks with differing durations, players **MUST** maintain a Master Timeline Scheduler.
-
-### 6.1 Time Unit
-- All time ticks **MUST** be integer **milliseconds** ($1\text{ ms} = 0.001\text{ seconds}$).
-
-### 6.2 Next Tick Calculation
-When a track $T$ is evaluated at tick $t_{\text{current}}$, its next evaluation tick $t_{\text{next}}$ **MUST** be calculated as:
-$$t_{\text{next}} = t_{\text{current}} + \text{round}( \text{part\_duration} \times \text{repeats} \times 1000 )$$
-
-### 6.3 State Lifecycle
-1. **At Initialization ($t = 0\text{ ms}$):**
-   - Initialize PRNG with Seed $S$.
-   - Create an empty `ActiveParts` map (`TrackName -> PartPath | SILENT`).
-   - Evaluate all tracks in Priority Order ($t = 0\text{ ms}$).
-   - Store results in `ActiveParts` and schedule next ticks.
-2. **At Playback Tick $t$:**
-   - Pop all tracks scheduled for tick $t$.
-   - Sort popped tracks by Priority Order (Primary $\rightarrow$ Secondary $\rightarrow$ Standard).
-   - Evaluate each track, update `ActiveParts`, trigger audio playback if non-silent, and schedule its next tick.
-
----
-
-## 7. Audio Playback & Mixing Rules
-
-1. **Sample-Accurate Scheduling:** Audio clip triggers **MUST** be scheduled with sample-accurate buffer alignment matching the calculated millisecond ticks.
-2. **Micro-Crossfades:** Players **SHOULD** apply a 5ms to 10ms equal-power crossfade at clip boundaries to eliminate digital clicking.
-3. **Resampling:** Players **MUST** resample all audio clips to a unified mixing rate (RECOMMENDED: 44.1 kHz or 48 kHz).
-
----
-
-## 8. Conformance Verification (Golden Test Vector)
-
-To verify that an implementation is compliant, run the player with the following reference input:
-- **Package:** `examples/song_1`
-- **Seed ($S$):** `12345`
-
-### Expected Initial Selection at $t = 0\text{ ms}$:
-
-| Evaluation Order | Track Name | Type | $R_{\text{part}}$ | $R_{\text{silence}}$ | Selected Part Result | Next Tick |
-| :--- | :--- | :--- | :--- | :--- | :--- | :--- |
-| 1 | `Drums` | `primary` | `0.10957861` | `0.26538530` | `Drums/Drums 1` | 60000 ms |
-| 2 | `Organ` | `secondary` | `0.88562399` | `0.83573741` | `Organ/Organ 4` | 60000 ms |
-| 3 | `Bass` | `standard` | `0.32563106` | `0.56047223` | `Bass/Bass 2` | 60000 ms |
-| 4 | `Lead` | `standard` | `0.79386844` | `0.39149387` | `Lead/Mellotron 4` | 60000 ms |
-| 5 | `Percussion` | `standard` | `0.81517936` | `0.18816854` | `SILENT` | 60000 ms |
-
-> Any player implementation **MUST** match the exact sequence above for `Seed = 12345`.
+A player **MUST** match this table for seed 12345.

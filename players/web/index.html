@@ -4,20 +4,23 @@
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Procsong Player</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Monoton&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #12110f;
-      --panel: #1c1b18;
-      --line: #2e2c27;
-      --text: #ece7dc;
-      --muted: #9a9488;
-      --accent: #e2b15a;
-      --primary: #e2b15a;
+      --bg: #16130f;
+      --panel: #1f1b16;
+      --line: #3a342c;
+      --text: #f0e6d4;
+      --muted: #a89880;
+      --accent: #e4b45a;
       --secondary: #8fbfa0;
       --standard: #8aa7c7;
       --silent: #6d6860;
-      --fail: #d36b5e;
-      --pass: #8fbfa0;
+      --display: "Monoton", "Arial Black", system-ui, sans-serif;
+      --sans: "Source Sans 3", "Segoe UI", sans-serif;
+      --mono: "IBM Plex Mono", ui-monospace, monospace;
     }
 
     * { box-sizing: border-box; }
@@ -25,62 +28,89 @@
     html, body {
       margin: 0;
       min-height: 100%;
-      background: var(--bg);
+      background:
+        radial-gradient(1200px 500px at 10% -10%, #2a2218 0%, transparent 55%),
+        var(--bg);
       color: var(--text);
-      font: 15px/1.45 "Segoe UI", system-ui, sans-serif;
+      font: 16px/1.5 var(--sans);
     }
 
     body {
       max-width: 880px;
       margin: 0 auto;
-      padding: 32px 20px 48px;
+      padding: 36px 20px 56px;
     }
 
     h1 {
-      font-size: 1.45rem;
-      font-weight: 650;
-      letter-spacing: 0.02em;
-      margin: 0 0 4px;
+      font-family: var(--display);
+      font-size: clamp(2.6rem, 8vw, 5.2rem);
+      font-weight: 400;
+      line-height: 1.05;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      color: var(--accent);
+      text-shadow:
+        0 0 10px rgba(255, 64, 180, 0.55),
+        0 0 28px rgba(0, 220, 255, 0.35),
+        0 0 48px rgba(228, 180, 90, 0.25);
+      margin: 0 0 16px;
     }
 
     .lede {
       color: var(--muted);
+      margin: 0 0 14px;
+      text-align: justify;
+      text-justify: inter-word;
+    }
+
+    .uses {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
       margin: 0 0 24px;
+      padding: 0;
+      list-style: none;
+    }
+
+    .uses li {
+      border: 1px solid var(--line);
+      border-radius: 999px;
+      padding: 3px 11px;
+      color: var(--muted);
+      font-size: 13px;
     }
 
     .panel {
       background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 12px;
-      padding: 16px;
-      margin-bottom: 14px;
+      border-radius: 8px;
+      padding: 14px 16px;
+      margin-bottom: 10px;
     }
 
-    label {
-      display: block;
+    .field {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      margin: 0;
       color: var(--muted);
-      font-size: 12px;
-      letter-spacing: 0.04em;
+      font-family: var(--mono);
+      font-size: 11px;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
-      margin-bottom: 6px;
     }
 
-    input[type="text"],
-    input[type="number"] {
-      width: 100%;
-      background: #141311;
+    .field.source { margin-bottom: 12px; }
+    .field.source input { flex: 1; min-width: 0; }
+    .field.seed input { width: 7.5em; }
+
+    input[type="text"] {
+      background: #14110d;
       color: var(--text);
       border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 8px 10px;
-      font: inherit;
-    }
-
-    .row {
-      display: grid;
-      grid-template-columns: 1fr 140px;
-      gap: 12px;
-      margin-bottom: 12px;
+      border-radius: 4px;
+      padding: 6px 8px;
+      font: 13px/1.3 var(--mono);
     }
 
     .controls {
@@ -94,9 +124,11 @@
       background: var(--accent);
       color: #1a160f;
       border: 0;
-      border-radius: 8px;
+      border-radius: 4px;
       padding: 8px 14px;
-      font: 650 14px/1 "Segoe UI", system-ui, sans-serif;
+      font: 600 13px/1 var(--sans);
+      letter-spacing: 0.04em;
+      text-transform: uppercase;
       cursor: pointer;
     }
 
@@ -106,42 +138,78 @@
       border: 1px solid var(--line);
     }
 
-    button:disabled {
-      opacity: 0.45;
-      cursor: default;
-    }
+    button:disabled { opacity: 0.45; cursor: default; }
 
-    .volume {
-      display: flex;
-      align-items: center;
-      gap: 8px;
+    button.icon {
+      width: 36px;
+      height: 36px;
+      padding: 0;
       color: var(--muted);
-      margin-left: auto;
     }
 
+    button.icon span {
+      display: inline-block;
+      transition: transform 0.15s ease;
+    }
+
+    button.icon[aria-expanded="true"] span { transform: rotate(180deg); }
+
+    #clock {
+      font-family: var(--mono);
+      font-variant-numeric: tabular-nums;
+      color: var(--muted);
+      min-width: 3.5em;
+    }
+
+    .volume { margin-left: auto; }
     .volume input { width: 110px; }
 
     .status {
-      margin-top: 12px;
+      margin-top: 10px;
       color: var(--muted);
-      min-height: 1.45em;
     }
 
-    .progress {
+    .status:empty { display: none; }
+
+    .transport {
       display: none;
+      position: relative;
       height: 6px;
-      background: #141311;
+      margin-top: 12px;
       border-radius: 99px;
       overflow: hidden;
-      margin-top: 10px;
     }
 
-    .progress > span {
-      display: block;
-      height: 100%;
-      width: 0%;
-      background: var(--accent);
+    .transport.loading,
+    .transport.playing { display: block; }
+
+    .transport.loading { background: #b56a1e; }
+    .transport.playing { background: #1a4d7a; }
+
+    .transport::after {
+      content: "";
+      position: absolute;
+      inset: 0 auto 0 0;
+      width: 42%;
     }
+
+    .transport.loading::after {
+      background: linear-gradient(90deg, transparent, #e2b15a, transparent);
+      animation: sweep 1.15s linear infinite;
+    }
+
+    .transport.playing::after {
+      background: linear-gradient(90deg, transparent, #7ec2f0, transparent);
+      animation: sweep 1.8s linear infinite;
+    }
+
+    @keyframes sweep {
+      from { transform: translateX(-120%); }
+      to { transform: translateX(280%); }
+    }
+
+    #details { display: none; }
+    #details.open { display: block; }
 
     table {
       width: 100%;
@@ -157,19 +225,15 @@
 
     th {
       color: var(--muted);
-      font-size: 12px;
-      font-weight: 600;
+      font-family: var(--mono);
+      font-size: 11px;
+      font-weight: 500;
       text-transform: uppercase;
-      letter-spacing: 0.04em;
+      letter-spacing: 0.08em;
     }
 
-    .type {
-      font-size: 12px;
-      text-transform: uppercase;
-      letter-spacing: 0.04em;
-    }
-
-    .type.primary { color: var(--primary); }
+    .type { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
+    .type.primary { color: var(--accent); }
     .type.secondary { color: var(--secondary); }
     .type.standard { color: var(--standard); }
 
@@ -179,48 +243,86 @@
     }
 
     .clock {
+      font-family: var(--mono);
       font-variant-numeric: tabular-nums;
       color: var(--muted);
     }
 
-    .check.pass { color: var(--pass); }
-    .check.fail { color: var(--fail); }
+    .debug {
+      display: flex;
+      flex-wrap: wrap;
+      align-items: center;
+      gap: 10px;
+      margin-top: 12px;
+    }
+
+    .debug p {
+      margin: 0;
+      color: var(--muted);
+      font-size: 13px;
+    }
+
+    .log {
+      display: none;
+      margin: 12px 0 0;
+      max-height: 420px;
+      overflow: auto;
+      padding: 10px 12px;
+      background: #14110d;
+      border: 1px solid var(--line);
+      border-radius: 4px;
+      color: var(--text);
+      font: 12px/1.45 var(--mono);
+      white-space: pre;
+    }
 
     @media (max-width: 640px) {
-      .row { grid-template-columns: 1fr; }
       .volume { margin-left: 0; }
     }
   </style>
 </head>
 <body>
-  <h1>Procsong Player</h1>
-  <p class="lede">Loads a Procsong zip in memory and plays an infinite deterministic arrangement from a seed.</p>
+  <h1>Procsong</h1>
+  <p class="lede">
+    An open-source schema for deterministic, clip-based, infinite music.
+    A package of audio parts and a seed produce the same arrangement on any player:
+    tracks of different lengths overlap and recombine, so the piece keeps going without a fixed loop.
+  </p>
+  <ul class="uses">
+    <li>Party backgrounds</li>
+    <li>Shops &amp; cafes</li>
+    <li>Study music</li>
+    <li>Games</li>
+    <li>DJ compositions</li>
+    <li>Art installations</li>
+    <li>Practice companion</li>
+  </ul>
 
   <div class="panel">
-    <div class="row">
-      <div>
-        <label for="zipUrl">Package zip URL</label>
-        <input id="zipUrl" type="text" spellcheck="false">
-      </div>
-      <div>
-        <label for="seed">Seed</label>
-        <input id="seed" type="text" value="12345" spellcheck="false">
-      </div>
-    </div>
+    <label class="field source">
+      URL
+      <input id="zipUrl" type="text" spellcheck="false">
+    </label>
     <div class="controls">
-      <button id="loadBtn" type="button">Load package</button>
-      <button id="playBtn" type="button" disabled>Play</button>
+      <button id="playBtn" type="button">Play</button>
       <button id="stopBtn" type="button" class="secondary" disabled>Stop</button>
-      <label class="volume">
-        Volume
-        <input id="volume" type="range" min="0" max="1" step="0.01" value="0.85">
+      <label class="field seed">
+        Seed
+        <input id="seed" type="text" value="12345" spellcheck="false" inputmode="numeric">
       </label>
+      <span id="clock">0s</span>
+      <label class="volume">
+        <input id="volume" type="range" min="0" max="1" step="0.01" value="0.85" aria-label="Volume">
+      </label>
+      <button id="detailsBtn" type="button" class="secondary icon" aria-expanded="false" aria-controls="details" title="Details">
+        <span aria-hidden="true">▼</span>
+      </button>
     </div>
-    <div id="status" class="status">Ready to load the Dropbox package.</div>
-    <div id="progress" class="progress"><span></span></div>
+    <div id="status" class="status"></div>
+    <div id="transport" class="transport"></div>
   </div>
 
-  <div class="panel">
+  <div id="details" class="panel">
     <table>
       <thead>
         <tr>
@@ -229,14 +331,18 @@
           <th>Length</th>
           <th>Now playing</th>
           <th>Next start</th>
+          <th>Next part</th>
         </tr>
       </thead>
       <tbody id="tracks">
-        <tr><td colspan="5" class="clock">Load a package to see tracks.</td></tr>
+        <tr><td colspan="6" class="clock">Play to load a package.</td></tr>
       </tbody>
     </table>
-    <p id="clock" class="clock"></p>
-    <p id="conformance" class="status"></p>
+    <div class="debug">
+      <button id="generateBtn" type="button" class="secondary">Generate</button>
+      <p>Dump the first 100 part evaluations for this seed.</p>
+    </div>
+    <pre id="log" class="log"></pre>
   </div>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
