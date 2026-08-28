@@ -3,21 +3,45 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Procsong Player</title>
+  <title>Procsong — infinite procedural music</title>
+  <meta name="description" content="An infinite, clip-based procedural music format. Load a library, pick a song, bookmark the page, and share it with anyone, anywhere.">
+  <meta name="theme-color" content="#e4b45a">
+  <link rel="canonical" href="https://michaeldowd2.github.io/procsong/players/web/">
+
+  <meta property="og:type" content="website">
+  <meta property="og:site_name" content="Procsong">
+  <meta property="og:title" content="Procsong — infinite procedural music">
+  <meta property="og:description" content="Clip-based music that keeps going. Create procsongs, load a library, bookmark the link, and share it with anyone, anywhere.">
+  <meta property="og:image" content="https://michaeldowd2.github.io/procsong/players/web/og.png?v=2">
+  <meta property="og:image:type" content="image/png">
+  <meta property="og:image:width" content="1200">
+  <meta property="og:image:height" content="630">
+  <meta property="og:image:alt" content="Procsong — infinite clip-based procedural music">
+
+  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:title" content="Procsong — infinite procedural music">
+  <meta name="twitter:description" content="Clip-based music that keeps going. Create procsongs, load a library, bookmark the link, and share it with anyone, anywhere.">
+  <meta name="twitter:image" content="https://michaeldowd2.github.io/procsong/players/web/og.png?v=2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Monoton&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet">
   <style>
     :root {
-      --bg: #16130f;
-      --panel: #1f1b16;
-      --line: #3a342c;
-      --text: #f0e6d4;
-      --muted: #a89880;
+      --bg: #161018;
+      --panel: #1f1822;
+      --line: #3a3140;
+      --text: #f3e6de;
+      --muted: #b49aa8;
       --accent: #e4b45a;
-      --secondary: #8fbfa0;
-      --standard: #8aa7c7;
+      --neon: #ff4fd8;
+      --on-accent: #1a160f;
+      --secondary: #5ee0ff;
+      --standard: #c9a0ff;
       --silent: #6d6860;
+      --input-bg: #140f16;
+      --transport-play: #5ee0ff;
+      --transport-load: #e2b15a;
+      --error: #e8a090;
       --display: "Monoton", "Arial Black", system-ui, sans-serif;
       --sans: "Source Sans 3", "Segoe UI", sans-serif;
       --mono: "IBM Plex Mono", ui-monospace, monospace;
@@ -29,7 +53,9 @@
       margin: 0;
       min-height: 100%;
       background:
-        radial-gradient(1200px 500px at 10% -10%, #2a2218 0%, transparent 55%),
+        radial-gradient(1100px 460px at 8% -12%, rgba(228, 180, 90, 0.22) 0%, transparent 55%),
+        radial-gradient(900px 520px at 108% 0%, rgba(255, 79, 216, 0.18) 0%, transparent 52%),
+        radial-gradient(800px 400px at 50% 120%, rgba(94, 224, 255, 0.08) 0%, transparent 50%),
         var(--bg);
       color: var(--text);
       font: 16px/1.5 var(--sans);
@@ -43,49 +69,48 @@
 
     h1 {
       font-family: var(--display);
-      font-size: clamp(2.6rem, 8vw, 5.2rem);
+      font-size: clamp(2.2rem, 7vw, 4.2rem);
       font-weight: 400;
       line-height: 1.05;
       letter-spacing: 0.08em;
       text-transform: uppercase;
       color: var(--accent);
       text-shadow:
-        0 0 10px rgba(255, 64, 180, 0.55),
-        0 0 28px rgba(0, 220, 255, 0.35),
-        0 0 48px rgba(228, 180, 90, 0.25);
-      margin: 0 0 16px;
+        0 0 8px rgba(228, 180, 90, 0.7),
+        0 0 22px rgba(228, 180, 90, 0.35),
+        0 0 48px rgba(255, 79, 216, 0.4);
+      margin: 0 0 8px;
     }
 
     .lede {
       color: var(--muted);
-      margin: 0 0 14px;
-      text-align: justify;
-      text-justify: inter-word;
+      margin: 0 0 10px;
+      font-size: 15px;
     }
+
+    .lede a {
+      color: var(--neon);
+      text-decoration: none;
+      text-shadow: 0 0 12px rgba(255, 79, 216, 0.35);
+    }
+
+    .lede a:hover { text-decoration: underline; }
 
     .uses {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin: 0 0 24px;
+      margin: 0 0 20px;
       padding: 0;
       list-style: none;
     }
 
     .uses li {
-      border: 1px solid var(--line);
+      border: 1px solid color-mix(in srgb, var(--neon) 42%, var(--line));
       border-radius: 999px;
       padding: 3px 11px;
       color: var(--muted);
       font-size: 13px;
-    }
-
-    .panel {
-      background: var(--panel);
-      border: 1px solid var(--line);
-      border-radius: 8px;
-      padding: 14px 16px;
-      margin-bottom: 10px;
     }
 
     .field {
@@ -100,12 +125,67 @@
       text-transform: uppercase;
     }
 
-    .field.source { margin-bottom: 12px; }
-    .field.source input { flex: 1; min-width: 0; }
-    .field.seed input { width: 7.5em; }
+    .library-tools { margin-bottom: 10px; }
+
+    .help-links {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px 18px;
+      margin: 10px 0 0;
+    }
+
+    .help-links details { margin: 0; }
+    .help-links details[open] { flex: 1 1 100%; }
+
+    .library-load {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 6px 10px;
+      align-items: center;
+      margin: 0 0 2px;
+    }
+
+    .library-load .field {
+      flex: 1;
+      min-width: 0;
+      gap: 6px;
+      font-size: 10px;
+      letter-spacing: 0.06em;
+      opacity: 0.72;
+    }
+
+    .library-load .field input {
+      flex: 1;
+      min-width: 0;
+      background: transparent;
+      border: 0;
+      border-bottom: 1px solid var(--line);
+      border-radius: 0;
+      padding: 2px 0 3px;
+      font-size: 11px;
+      color: var(--muted);
+    }
+
+    .library-load .field input:focus {
+      outline: none;
+      border-bottom-color: color-mix(in srgb, var(--neon) 50%, var(--line));
+      box-shadow: none;
+      color: var(--text);
+    }
+
+    .library-load button {
+      background: transparent;
+      color: var(--muted);
+      border: 0;
+      padding: 2px 0 2px 4px;
+      font: 500 10px/1 var(--mono);
+      letter-spacing: 0.08em;
+    }
+
+    .library-load button:hover { color: var(--accent); }
 
     input[type="text"] {
-      background: #14110d;
+      background: var(--input-bg);
       color: var(--text);
       border: 1px solid var(--line);
       border-radius: 4px;
@@ -113,16 +193,15 @@
       font: 13px/1.3 var(--mono);
     }
 
-    .controls {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 8px;
-      align-items: center;
+    input[type="text"]:focus {
+      outline: none;
+      border-color: var(--neon);
+      box-shadow: 0 0 0 1px color-mix(in srgb, var(--neon) 55%, transparent);
     }
 
     button {
       background: var(--accent);
-      color: #1a160f;
+      color: var(--on-accent);
       border: 0;
       border-radius: 4px;
       padding: 8px 14px;
@@ -132,221 +211,233 @@
       cursor: pointer;
     }
 
-    button.secondary {
-      background: transparent;
-      color: var(--text);
-      border: 1px solid var(--line);
-    }
-
     button:disabled { opacity: 0.45; cursor: default; }
 
-    button.icon {
-      width: 36px;
-      height: 36px;
-      padding: 0;
-      color: var(--muted);
-    }
-
-    button.icon span {
-      display: inline-block;
-      transition: transform 0.15s ease;
-    }
-
-    button.icon[aria-expanded="true"] span { transform: rotate(180deg); }
-
-    #clock {
-      font-family: var(--mono);
-      font-variant-numeric: tabular-nums;
-      color: var(--muted);
-      min-width: 3.5em;
-    }
-
-    .volume { margin-left: auto; }
-    .volume input { width: 110px; }
-
-    .status {
-      margin-top: 10px;
-      color: var(--muted);
-    }
-
-    .status:empty { display: none; }
-
-    .transport {
-      display: none;
-      position: relative;
-      height: 6px;
-      margin-top: 12px;
-      border-radius: 99px;
-      overflow: hidden;
-    }
-
-    .transport.loading,
-    .transport.playing { display: block; }
-
-    .transport.loading { background: #b56a1e; }
-    .transport.playing { background: #1a4d7a; }
-
-    .transport::after {
-      content: "";
-      position: absolute;
-      inset: 0 auto 0 0;
-      width: 42%;
-    }
-
-    .transport.loading::after {
-      background: linear-gradient(90deg, transparent, #e2b15a, transparent);
-      animation: sweep 1.15s linear infinite;
-    }
-
-    .transport.playing::after {
-      background: linear-gradient(90deg, transparent, #7ec2f0, transparent);
-      animation: sweep 1.8s linear infinite;
-    }
-
-    @keyframes sweep {
-      from { transform: translateX(-120%); }
-      to { transform: translateX(280%); }
-    }
-
-    #details { display: none; }
-    #details.open { display: block; }
-
-    table {
-      width: 100%;
-      border-collapse: collapse;
-    }
-
-    th, td {
-      text-align: left;
-      padding: 8px 6px;
-      border-bottom: 1px solid var(--line);
-      vertical-align: top;
-    }
-
-    th {
-      color: var(--muted);
-      font-family: var(--mono);
-      font-size: 11px;
-      font-weight: 500;
-      text-transform: uppercase;
-      letter-spacing: 0.08em;
-    }
-
-    .type { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
-    .type.primary { color: var(--accent); }
-    .type.secondary { color: var(--secondary); }
-    .type.standard { color: var(--standard); }
-
-    .part.silent {
-      color: var(--silent);
-      font-style: italic;
-    }
-
-    .clock {
-      font-family: var(--mono);
-      font-variant-numeric: tabular-nums;
-      color: var(--muted);
-    }
-
-    .debug {
-      display: flex;
-      flex-wrap: wrap;
-      align-items: center;
-      gap: 10px;
-      margin-top: 12px;
-    }
-
-    .debug p {
+    .make-library {
       margin: 0;
-      color: var(--muted);
-      font-size: 13px;
     }
 
-    .log {
-      display: none;
-      margin: 12px 0 0;
-      max-height: 420px;
-      overflow: auto;
-      padding: 10px 12px;
-      background: #14110d;
+    .make-library summary {
+      color: var(--neon);
+      cursor: pointer;
+      font-size: 14px;
+      list-style: none;
+      width: fit-content;
+    }
+
+    .make-library summary::-webkit-details-marker { display: none; }
+
+    .make-library summary:hover { text-decoration: underline; }
+
+    .help-panel {
+      margin-top: 10px;
+      padding: 14px 16px;
+      background: var(--panel);
       border: 1px solid var(--line);
-      border-radius: 4px;
+      border-radius: 8px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .help-panel p { margin: 0 0 10px; }
+    .help-panel p:last-child { margin-bottom: 0; }
+
+    .help-panel code,
+    .help-panel pre {
+      font-family: var(--mono);
+      font-size: 12px;
       color: var(--text);
-      font: 12px/1.45 var(--mono);
+    }
+
+    .help-panel pre {
+      margin: 8px 0 12px;
+      padding: 10px 12px;
+      background: var(--input-bg);
+      border-radius: 4px;
+      overflow: auto;
       white-space: pre;
     }
 
-    @media (max-width: 640px) {
-      .volume { margin-left: 0; }
+    .help-panel ul,
+    .help-panel ol {
+      margin: 0 0 10px;
+      padding-left: 1.2em;
+    }
+
+    .section-rule {
+      border: 0;
+      height: 1px;
+      background: linear-gradient(90deg, transparent, var(--accent) 18%, var(--neon) 82%, transparent);
+      margin: 16px 0 14px;
     }
   </style>
 </head>
 <body>
   <h1>Procsong</h1>
   <p class="lede">
-    An open-source schema for deterministic, clip-based, infinite music.
-    A package of audio parts and a seed produce the same arrangement on any player:
-    tracks of different lengths overlap and recombine, so the piece keeps going without a fixed loop.
+    An infinite, clip-based procedural music format.
+    <a href="#help-procsong">Create some procsongs</a>,
+    <a href="#help-library">create a library</a>,
+    <a href="#libraryUrl">load it below</a>,
+    then bookmark the link to listen — or share it with others to enjoy your infinite music creations.
   </p>
   <ul class="uses">
     <li>Party backgrounds</li>
     <li>Shops &amp; cafes</li>
     <li>Study music</li>
     <li>Games</li>
-    <li>DJ compositions</li>
+    <li>Compositions for dancing</li>
     <li>Art installations</li>
     <li>Practice companion</li>
   </ul>
 
-  <div class="panel">
-    <label class="field source">
-      URL
-      <input id="zipUrl" type="text" spellcheck="false">
-    </label>
-    <div class="controls">
-      <button id="playBtn" type="button">Play</button>
-      <button id="stopBtn" type="button" class="secondary" disabled>Stop</button>
-      <label class="field seed">
-        Seed
-        <input id="seed" type="text" value="12345" spellcheck="false" inputmode="numeric">
+  <div class="library-tools">
+    <div class="library-load">
+      <label class="field">
+        Library URL
+        <input id="libraryUrl" type="text" spellcheck="false">
       </label>
-      <span id="clock">0s</span>
-      <label class="volume">
-        <input id="volume" type="range" min="0" max="1" step="0.01" value="0.85" aria-label="Volume">
-      </label>
-      <button id="detailsBtn" type="button" class="secondary icon" aria-expanded="false" aria-controls="details" title="Details">
-        <span aria-hidden="true">▼</span>
-      </button>
+      <button id="loadLibraryBtn" type="button">Load</button>
     </div>
-    <div id="status" class="status"></div>
-    <div id="transport" class="transport"></div>
+    <hr class="section-rule">
+    <div id="library"></div>
   </div>
-
-  <div id="details" class="panel">
-    <table>
-      <thead>
-        <tr>
-          <th>Track</th>
-          <th>Type</th>
-          <th>Length</th>
-          <th>Now playing</th>
-          <th>Next start</th>
-          <th>Next part</th>
-        </tr>
-      </thead>
-      <tbody id="tracks">
-        <tr><td colspan="6" class="clock">Play to load a package.</td></tr>
-      </tbody>
-    </table>
-    <div class="debug">
-      <button id="generateBtn" type="button" class="secondary">Generate</button>
-      <p>Dump the first 100 part evaluations for this seed.</p>
-    </div>
-    <pre id="log" class="log"></pre>
+  <div id="player"></div>
+  <hr class="section-rule">
+  <details class="make-library" id="help">
+    <summary>How to make procsongs and libraries…</summary>
+    <div class="help-links">
+    <details class="make-library" id="help-procsong">
+      <summary>How to make a procsong…</summary>
+      <div class="help-panel">
+        <p>
+          A procsong is a zip of audio clips plus a <code>definition.yml</code>. The same zip and seed
+          always produce the same arrangement: tracks of different lengths overlap and recombine, so
+          the piece keeps going without a fixed loop.
+        </p>
+        <ol>
+          <li>Record a few interchangeable clips per track (e.g. two drum loops). Make each wav a couple of seconds longer than the start interval so tails overlap.</li>
+          <li>Put them in folders named after the track, and write a <code>definition.yml</code> next to those folders.</li>
+          <li>Zip the yaml and the clip folders together, host the zip, then add its URL to a library.</li>
+        </ol>
+        <p>Minimal <code>definition.yml</code> — one drums track that picks a clip every 8 seconds:</p>
+        <pre>Drums:
+  type: primary
+  part_duration: 8
+  repeats: 4
+  probability_silence: 0
+  parts:
+    - Drums/A.wav
+    - Drums/B.wav</pre>
+        <p>
+          <code>part_duration</code> is when the next clip <em>starts</em>, not how long the wav is.
+          <code>repeats</code> is how many times that choice plays before a new one is picked.
+          Add more tracks as <code>secondary</code> or <code>standard</code> if they should follow
+          whatever drums (or other tracks) chose.
+        </p>
+      </div>
+    </details>
+    <details class="make-library" id="help-library">
+      <summary>Make my own library and share with others…</summary>
+      <div class="help-panel">
+        <p>
+          A library is a CSV or JSON file of procsong packages. Host it anywhere the browser can fetch
+          (a Dropbox share link works), paste that URL above, and press Load. The address bar updates
+          with <code>library_url</code> so you can send this page to friends.
+        </p>
+        <p>Only <code>procsong_url</code> is required. Everything else is optional:</p>
+        <ul>
+          <li><code>title</code>, <code>artist</code>, <code>description</code></li>
+          <li><code>tags</code> — semicolon-separated, e.g. <code>game music;synth</code></li>
+          <li><code>procsong_url</code> — zip of the procsong package</li>
+          <li><code>image_url</code> — cover art</li>
+        </ul>
+        <pre>title,artist,description,tags,procsong_url,image_url
+"Game Music","Michael Dowd","A procedural song","game music;synth","https://…/song.zip","https://…/cover.png"</pre>
+        <p>JSON is an array of objects with the same field names.</p>
+      </div>
+    </details>
   </div>
+  </details>
 
   <script src="https://cdn.jsdelivr.net/npm/jszip@3.10.1/dist/jszip.min.js"></script>
   <script src="https://cdn.jsdelivr.net/npm/js-yaml@4.1.0/dist/js-yaml.min.js"></script>
   <script src="proc_song.js"></script>
+  <script src="proc_library.js"></script>
+  <script>
+    (function () {
+      const DEFAULT_LIBRARY_URL =
+        'https://www.dropbox.com/scl/fi/8rs4otyk11pkhqr5ve12a/library.csv?rlkey=53mv4ycvyfsdi8vydoroc5xjw&st=zt5yy73b&dl=0';
+
+      const urlInput = document.getElementById('libraryUrl');
+      const params = new URLSearchParams(window.location.search);
+      const initialLibrary = params.get('library_url') || DEFAULT_LIBRARY_URL;
+      urlInput.value = initialLibrary;
+
+      function writeLibraryUrl(url) {
+        if (!url) return;
+        const next = new URL(window.location.href);
+        if (next.searchParams.get('library_url') === url) return;
+        next.searchParams.set('library_url', url);
+        history.replaceState(null, '', next);
+      }
+
+      writeLibraryUrl(initialLibrary);
+
+      const player = new ProcsongPlayer({
+        target: 'player',
+        showDebug: true,
+      });
+      player.initialise();
+
+      const library = new ProcsongLibrary({
+        target: 'library',
+        player: 'player',
+        library: initialLibrary,
+      });
+      library.initialise().catch(function () { /* status is shown in the library */ });
+
+      function loadFromInput() {
+        const url = urlInput.value.trim();
+        if (!url) return;
+        writeLibraryUrl(url);
+        library.load(url).catch(function () { /* status is shown in the library */ });
+      }
+
+      document.getElementById('loadLibraryBtn').addEventListener('click', loadFromInput);
+      urlInput.addEventListener('keydown', function (event) {
+        if (event.key === 'Enter') loadFromInput();
+      });
+
+      function openHelp(id) {
+        const panel = document.getElementById(id);
+        const footer = document.getElementById('help');
+        if (!panel) return;
+        if (footer) footer.open = true;
+        document.querySelectorAll('.help-links details').forEach(function (el) {
+          el.open = el === panel;
+        });
+        panel.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+
+      document.querySelectorAll('.lede a[href^="#help-"]').forEach(function (link) {
+        link.addEventListener('click', function (event) {
+          event.preventDefault();
+          const id = link.getAttribute('href').slice(1);
+          openHelp(id);
+          const next = new URL(window.location.href);
+          next.hash = id;
+          history.replaceState(null, '', next);
+        });
+      });
+
+      document.querySelector('.lede a[href="#libraryUrl"]').addEventListener('click', function (event) {
+        event.preventDefault();
+        urlInput.focus();
+        urlInput.select();
+        urlInput.scrollIntoView({ behavior: 'smooth', block: 'nearest' });
+      });
+    })();
+  </script>
 </body>
 </html>
