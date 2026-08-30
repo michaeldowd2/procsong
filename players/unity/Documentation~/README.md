@@ -2,7 +2,7 @@
 
 Music does **not** start when the scene loads. Call `Play()` when you want it.
 
-The zip is unpacked **the first time you press Play**, into memory only (YAML + `AudioClip`s). It is not extracted onto disk, and it is not unpacked when the game starts. Later Play calls reuse that in-memory data until you assign a different zip or destroy the player.
+The package is unpacked **the first time you press Play**, into memory only (YAML + `AudioClip`s). It is not extracted onto disk, and it is not unpacked when the game starts. Later Play calls reuse that in-memory data until you assign a different package or destroy the player.
 
 ## Install
 
@@ -30,8 +30,10 @@ Turn on **Log Schedule** to print the first evaluations (compare with the spec g
 
 1. Install the package (Git URL or copy `players/unity` under `Assets`).
 2. Create an empty GameObject and add **Procsong Player** (`Add Component` → Audio → Procsong Player).
-3. Copy a procsong `.zip` into the project and drag it onto **Song Package**.
+3. Copy the procsong zip into `Assets` and **rename the extension to `.bytes`** (`Song.zip` → `Song.bytes`). Drag that file onto **Song Package**.
 4. The scene still needs an **Audio Listener** (Unity puts one on the main camera by default).
+
+The file is still a zip; `.bytes` is only so Unity imports it as a TextAsset and includes it in builds. A raw `.zip` is an editor-only DefaultAsset and will not play in a player.
 
 In Play mode, use the **Play** / **Stop** buttons on the component, or the gear menu → Play / Stop.
 
@@ -50,7 +52,7 @@ Keep one player in the first scene and call `DontDestroyOnLoad` on it if the mus
 
 | Field | What it does |
 | :--- | :--- |
-| Song Package | The procsong `.zip` |
+| Song Package | The procsong zip renamed to `.bytes` |
 | Seed | Integer. Same package + seed always produces the same arrangement |
 | Volume | Master gain |
 | Spatial Blend | `0` is 2D (normal for music). Raise it if the object should be a 3D emitter |
@@ -58,9 +60,9 @@ Keep one player in the first scene and call `DontDestroyOnLoad` on it if the mus
 
 ## Builds
 
-Dragging a `.zip` onto Song Package is enough for the Editor and for a built game. Unity imports the zip as part of the project; you do not rename it.
+Assigning the `.bytes` file is enough for the Editor and for a built game. You do not put it in StreamingAssets.
 
-Clips in the zip must be PCM WAV (8/16/24/32-bit or 32-bit float). That is what a typical procsong package already uses.
+Clips inside the package must be PCM WAV (8/16/24/32-bit or 32-bit float). That is what a typical procsong zip already uses.
 
 ## Files
 

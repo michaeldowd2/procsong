@@ -32,7 +32,7 @@ If two players disagree on what plays, the spec is right; the player is wrong.
 ## Players
 
 - **Web** — open [`players/web/index.html`](players/web/index.html) in a browser. Load a library, pick a song, set a seed, press Play.
-- **Unity** — Package Manager → **Add package from git URL…** → `https://github.com/michaeldowd2/procsong.git?path=/players/unity`. Then add **Procsong Player** to a GameObject. See [`players/unity/Documentation~/README.md`](players/unity/Documentation~/README.md).
+- **Unity** — Package Manager → **Add package from git URL…** → `https://github.com/michaeldowd2/procsong.git?path=/players/unity`. Add **Procsong Player**, copy the song zip into `Assets` as `.bytes`, and assign it. See [`players/unity/Documentation~/README.md`](players/unity/Documentation~/README.md).
 
 ## Package shape
 

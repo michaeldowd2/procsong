@@ -8,16 +8,8 @@ using UnityEngine;
 namespace Procsong
 {
     /// <summary>
-    /// Imported procsong zip. Created automatically when you drop a .zip in the project.
-    /// </summary>
-    public sealed class ProcsongZip : ScriptableObject
-    {
-        [HideInInspector] public byte[] bytes;
-    }
-
-    /// <summary>
-    /// Unity player for a Procsong zip. Assign a package, then call <see cref="Play"/>
-    /// when you want music — it does not start on its own.
+    /// Unity player for a Procsong package. Assign a <c>.bytes</c> file (the zip renamed),
+    /// then call <see cref="Play"/> when you want music — it does not start on its own.
     ///
     /// The zip is unpacked into memory on the first Play(), not when the scene loads.
     /// Nothing is written to disk.
@@ -31,8 +23,8 @@ namespace Procsong
         const float StartDelaySec = 0.08f;
 
         [Header("Package")]
-        [Tooltip("Drag a procsong .zip from the Project window.")]
-        [SerializeField] UnityEngine.Object songPackage;
+        [Tooltip("Rename the procsong zip to .bytes in Assets, then drag it here. Unity does not include raw .zip files in builds.")]
+        [SerializeField] TextAsset songPackage;
 
         [Header("Playback")]
         [Tooltip("Integer seed. The same package + seed always produces the same arrangement.")]
@@ -45,7 +37,7 @@ namespace Procsong
 
         List<ProcsongTrack> _tracks;
         Dictionary<string, AudioClip> _clips;
-        UnityEngine.Object _loadedPackage;
+        TextAsset _loadedPackage;
         ProcsongEngine _engine;
         readonly List<Voice> _voices = new List<Voice>();
         bool _playing;
@@ -275,67 +267,13 @@ namespace Procsong
 
         void LoadPackageFiles(out string yaml, out Dictionary<string, byte[]> clips)
         {
-            if (songPackage != null)
+            if (songPackage == null || songPackage.bytes == null || songPackage.bytes.Length == 0)
             {
-                var zip = songPackage as ProcsongZip;
-                if (zip != null && zip.bytes != null && zip.bytes.Length > 0)
-                {
-                    UnpackZip(zip.bytes, out yaml, out clips);
-                    return;
-                }
-
-                var text = songPackage as TextAsset;
-                if (text != null)
-                {
-                    UnpackZip(text.bytes, out yaml, out clips);
-                    return;
-                }
-
-#if UNITY_EDITOR
-                string assetPath = UnityEditor.AssetDatabase.GetAssetPath(songPackage);
-                if (string.IsNullOrEmpty(assetPath))
-                    throw new InvalidOperationException("Could not resolve the song package path.");
-                string projectRoot = Directory.GetParent(Application.dataPath).FullName;
-                string full = Path.GetFullPath(Path.Combine(projectRoot, assetPath));
-                if (Directory.Exists(full))
-                {
-                    LoadFolder(full, out yaml, out clips);
-                    return;
-                }
-                if (File.Exists(full))
-                {
-                    UnpackZip(File.ReadAllBytes(full), out yaml, out clips);
-                    return;
-                }
-#endif
-                throw new InvalidOperationException("Assign a procsong .zip on Song Package.");
+                throw new InvalidOperationException(
+                    "Assign a procsong .bytes file on Song Package. " +
+                    "Copy the zip into Assets and rename it .bytes — Unity does not include raw .zip files in player builds.");
             }
-
-            throw new InvalidOperationException("Assign a procsong zip on ProcsongPlayer.");
-        }
-
-        static void LoadFolder(string folder, out string yaml, out Dictionary<string, byte[]> clips)
-        {
-            var defs = Directory.GetFiles(folder, "definition.yml", SearchOption.AllDirectories);
-            if (defs.Length == 0)
-                throw new InvalidOperationException("Folder does not contain definition.yml");
-            Array.Sort(defs, delegate (string a, string b)
-            {
-                int da = Depth(a) - Depth(b);
-                return da != 0 ? da : a.Length - b.Length;
-            });
-            string defPath = defs[0];
-            string root = Path.GetDirectoryName(defPath);
-            yaml = File.ReadAllText(defPath);
-            clips = new Dictionary<string, byte[]>();
-            var files = Directory.GetFiles(root, "*", SearchOption.AllDirectories);
-            for (int i = 0; i < files.Length; i++)
-            {
-                if (string.Equals(files[i], defPath, StringComparison.OrdinalIgnoreCase)) continue;
-                string rel = files[i].Substring(root.Length).TrimStart(Path.DirectorySeparatorChar, '/').Replace('\\', '/');
-                if (ShouldSkipPath(rel)) continue;
-                clips[ClipKey(rel)] = File.ReadAllBytes(files[i]);
-            }
+            UnpackZip(songPackage.bytes, out yaml, out clips);
         }
 
         static void UnpackZip(byte[] zip, out string yaml, out Dictionary<string, byte[]> clips)
@@ -678,23 +616,16 @@ namespace Procsong
             UnityEngine.GUI.enabled = true;
             if (!UnityEngine.Application.isPlaying)
             {
+                if (serializedObject.FindProperty("songPackage").objectReferenceValue == null)
+                {
+                    UnityEditor.EditorGUILayout.HelpBox(
+                        "Copy the procsong zip into Assets, rename it .bytes, and drag it onto Song Package.",
+                        UnityEditor.MessageType.Warning);
+                }
                 UnityEditor.EditorGUILayout.HelpBox(
                     "Enter Play mode, then press Play on this component (or call Play() from your game). Music does not start automatically.",
                     UnityEditor.MessageType.Info);
             }
-        }
-    }
-
-    [UnityEditor.AssetImporters.ScriptedImporter(1, "zip")]
-    sealed class ProcsongZipImporter : UnityEditor.AssetImporters.ScriptedImporter
-    {
-        public override void OnImportAsset(UnityEditor.AssetImporters.AssetImportContext ctx)
-        {
-            var zip = ScriptableObject.CreateInstance<ProcsongZip>();
-            zip.bytes = File.ReadAllBytes(ctx.assetPath);
-            zip.name = Path.GetFileNameWithoutExtension(ctx.assetPath);
-            ctx.AddObjectToAsset("contents", zip);
-            ctx.SetMainObject(zip);
         }
     }
 #endif
