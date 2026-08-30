@@ -18,20 +18,20 @@ definitions:
           - primary
           - secondary
           - standard
-        description: "Type of the track (primary, secondary, or standard)."
+        description: "primary = always eligible (e.g. drums). secondary = filtered by current primary ChosenPart. standard = filtered by current primary and/or secondary ChosenPart. Sequencer order at a shared second is primary, then secondary, then standard (YAML order within type). See SPECIFICATION.md."
       probability_silence:
         type: number
         minimum: 0
         maximum: 1
-        description: "After a part is chosen, probability that this track is muted for the cycle. Mute does not clear the chosen part; dependents still see it."
+        description: "After a part is chosen, P(this start is muted) for the whole evaluation cycle. Mute is volume only; ChosenPart stays set and dependents still see it. Compare with R_silence using strict < . Default 0."
       part_duration:
         type: number
         minimum: 0
-        description: "Start-to-start interval in seconds. The audio file is typically longer; play the full file and start the next clip at this interval so tails overlap."
+        description: "Start-to-start interval in seconds, rounded to an integer ≥ 1. Independent per track; not a shared bar. The audio file is typically longer — play the full file and start the next clip at this interval so tails overlap."
       repeats:
         type: integer
         minimum: 1
-        description: "Number of starts of the same chosen part (and mute flag) before the track is evaluated again."
+        description: "Number of starts (including the evaluating start) of the same ChosenPart and mute flag before this track evaluates again. Retriggers do not consume PRNG draws."
       parts:
         type: array
         description: "List of audio parts belonging to this track."
@@ -75,9 +75,9 @@ definitions:
             type: array
             items:
               type: string
-            description: "Primary parts this clip may pair with. Matching uses the primary track's chosen part, including when that track is muted."
+            description: "If omitted, no primary restriction. If present, at least one current primary ChosenPart must be in this list (exact YAML path). Mute on the primary does not matter. Empty list matches nothing."
           allowed_secondary_parts:
             type: array
             items:
               type: string
-            description: "Secondary parts this clip may pair with. Matching uses the secondary track's chosen part, including when that track is muted."
+            description: "If omitted, no secondary restriction. If present, at least one current secondary ChosenPart must be in this list (exact YAML path). Mute on the secondary does not matter. Empty list matches nothing."

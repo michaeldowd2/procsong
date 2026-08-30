@@ -331,7 +331,11 @@
     - Drums/B.wav</pre>
         <p>
           <code>part_duration</code> is when the next clip <em>starts</em>, not how long the wav is.
-          <code>repeats</code> is how many times that choice plays before a new one is picked.
+          <code>repeats</code> is how many starts of that same choice before a new clip is picked.
+          Tracks do not share a bar: a 15-second track can restart while a 20-second track is still on its first clip.
+          Mute is volume after a choice — other tracks still see the chosen part.
+          The exact algorithm (clocks, evaluation order, shared PRNG) is
+          <a href="../../SPECIFICATION.md">SPECIFICATION.md</a>.
           Add more tracks as <code>secondary</code> or <code>standard</code> if they should follow
           whatever drums (or other tracks) chose.
         </p>
