@@ -1,10 +1,20 @@
 # Procsong for Unity
 
-Drop this repo under `Assets` in a Unity project. The web player and spec come along for the ride; Unity will not compile them. At runtime you only need the scripts in this folder and a procsong zip.
-
 Music does **not** start when the scene loads. Call `Play()` when you want it.
 
 The zip is unpacked **the first time you press Play**, into memory only (YAML + `AudioClip`s). It is not extracted onto disk, and it is not unpacked when the game starts. Later Play calls reuse that in-memory data until you assign a different zip or destroy the player.
+
+## Install
+
+**Package Manager (Git):** Window → Package Manager → **+** → **Add package from git URL…**
+
+```
+https://github.com/michaeldowd2/procsong.git
+```
+
+That URL only works after `package.json` is on the `main` branch of that repo. Unity looks for that file at the repository root.
+
+**Or** copy this repo under `Assets` (for example `Assets/procsong`). Unity will not compile the web player; it only needs the scripts in this folder.
 
 ## Sequencing
 
@@ -18,7 +28,7 @@ Turn on **Log Schedule** to print the first evaluations (compare with the spec g
 
 ## Add it to a scene
 
-1. Put the repo in the project, for example `Assets/procsong`.
+1. Install the package (Git URL or copy under `Assets`).
 2. Create an empty GameObject and add **Procsong Player** (`Add Component` → Audio → Procsong Player).
 3. Copy a procsong `.zip` into the project and drag it onto **Song Package**.
 4. The scene still needs an **Audio Listener** (Unity puts one on the main camera by default).
