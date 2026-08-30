@@ -9,16 +9,16 @@ The zip is unpacked **the first time you press Play**, into memory only (YAML + 
 **Package Manager (Git):** Window → Package Manager → **+** → **Add package from git URL…**
 
 ```
-https://github.com/michaeldowd2/procsong.git
+https://github.com/michaeldowd2/procsong.git?path=/players/unity
 ```
 
-That URL only works after `package.json` is on the `main` branch of that repo. Unity looks for that file at the repository root.
+Only this folder is the Unity package. `.meta` files live here next to the scripts Unity compiles, not next to the spec or the web player.
 
-**Or** copy this repo under `Assets` (for example `Assets/procsong`). Unity will not compile the web player; it only needs the scripts in this folder.
+**Or** copy `players/unity` under `Assets`.
 
 ## Sequencing
 
-This player **MUST** follow [`SPECIFICATION.md`](../../SPECIFICATION.md). Do not invent a second set of rules.
+This player **MUST** follow [`SPECIFICATION.md`](../../../SPECIFICATION.md). Do not invent a second set of rules.
 
 Same zip + same seed as the web player → same chosen parts, mute flags, and integer start times. Unity’s mixer may still sound slightly different from the browser.
 
@@ -28,7 +28,7 @@ Turn on **Log Schedule** to print the first evaluations (compare with the spec g
 
 ## Add it to a scene
 
-1. Install the package (Git URL or copy under `Assets`).
+1. Install the package (Git URL or copy `players/unity` under `Assets`).
 2. Create an empty GameObject and add **Procsong Player** (`Add Component` → Audio → Procsong Player).
 3. Copy a procsong `.zip` into the project and drag it onto **Song Package**.
 4. The scene still needs an **Audio Listener** (Unity puts one on the main camera by default).
@@ -68,5 +68,3 @@ Clips in the zip must be PCM WAV (8/16/24/32-bit or 32-bit float). That is what 
 | :--- | :--- |
 | `ProcsongPlayer.cs` | MonoBehaviour: zip load, WAV decode, audio |
 | `ProcsongEngine.cs` | Shared schedule / seed logic (same rules as the web player) |
-
-The rest of the repo (`SPECIFICATION.md`, `players/web`, `schema.yaml`) is reference material. You can leave it in the project; it is not used in a build.

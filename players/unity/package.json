@@ -2,7 +2,7 @@
   "name": "com.michaeldowd2.procsong",
   "version": "1.2.0",
   "displayName": "Procsong",
-  "description": "Deterministic clip-based infinite music. Same zip and seed produce the same arrangement in every compliant player.",
+  "description": "Deterministic clip-based infinite music player for Unity.",
   "unity": "2021.3",
   "documentationUrl": "https://github.com/michaeldowd2/procsong/blob/main/SPECIFICATION.md",
   "keywords": [
