@@ -1,83 +1,139 @@
 $schema: "http://json-schema.org/draft-07/schema#"
-title: "Procedural Song Definition Schema"
-description: "Schema for clip-based deterministic infinite music generation song definition YAML files."
+$id: "https://procsong/schema/2.0.0"
+title: "Procedural Song Definition Schema v2.0.0"
+description: >-
+  Schema for deterministic clip-based procedural songs using two matrix concepts:
+  intragroup_subsequent_weight_modifiers and intergroup_consecutive_weight_modifiers.
 type: object
-additionalProperties:
-  $ref: "#/definitions/Track"
+additionalProperties: false
+required: [format_version, tracks]
+properties:
+  format_version:
+    const: "2.0.0"
+  tracks:
+    type: array
+    minItems: 1
+    items:
+      $ref: "#/definitions/Track"
 
 definitions:
+  Weight:
+    type: number
+    minimum: 0
+
+  ClipId:
+    type: string
+    minLength: 1
+    pattern: "^[A-Za-z0-9_.-]+$"
+    description: >-
+      Clip identifier unique across the whole definition. Used as matrix column
+      headers and row keys. Not a file path.
+
+  TrackName:
+    type: string
+    minLength: 1
+    pattern: "^[^/]+$"
+
+  Clip:
+    type: object
+    additionalProperties: false
+    required: [id, path]
+    properties:
+      id:
+        $ref: "#/definitions/ClipId"
+      path:
+        type: string
+        minLength: 1
+        description: >-
+          Audio package path/string. Used only for file lookup and ChosenClip.
+          Must not appear as a matrix column or row key.
+      weight:
+        allOf:
+          - $ref: "#/definitions/Weight"
+        default: 1
+        description: "Base selection weight before matrix modifiers."
+
+  IntragroupMatrix:
+    type: object
+    additionalProperties: false
+    required: [columns, rows]
+    description: >-
+      Same-group transition matrix. columns lists possible next clip ids. rows maps
+      each previous/source clip id to a same-length array of weight modifiers.
+      Axes are clip ids, never path values.
+    properties:
+      columns:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          $ref: "#/definitions/ClipId"
+      rows:
+        type: object
+        minProperties: 1
+        propertyNames:
+          $ref: "#/definitions/ClipId"
+        additionalProperties:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/definitions/Weight"
+
+  IntergroupMatrix:
+    type: object
+    additionalProperties: false
+    required: [columns, rows]
+    description: >-
+      Cross-group context matrix. columns lists upstream clip ids currently
+      selected in earlier tracks. rows maps each downstream candidate clip id
+      to a same-length array of weight modifiers. Axes are clip ids, never
+      path values or TrackName/clip_id strings.
+    properties:
+      columns:
+        type: array
+        minItems: 1
+        uniqueItems: true
+        items:
+          $ref: "#/definitions/ClipId"
+      rows:
+        type: object
+        minProperties: 1
+        propertyNames:
+          $ref: "#/definitions/ClipId"
+        additionalProperties:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/definitions/Weight"
+
   Track:
     type: object
-    required:
-      - type
-      - parts
+    additionalProperties: false
+    required: [name, clip_length, repeats, clips]
     properties:
-      type:
-        type: string
-        enum:
-          - primary
-          - secondary
-          - standard
-        description: "primary = always eligible (e.g. drums). secondary = filtered by current primary ChosenPart. standard = filtered by current primary and/or secondary ChosenPart. Sequencer order at a shared second is primary, then secondary, then standard (YAML order within type). See SPECIFICATION.md."
-      probability_silence:
+      name:
+        $ref: "#/definitions/TrackName"
+      clip_length:
         type: number
         minimum: 0
-        maximum: 1
-        description: "After a part is chosen, P(this start is muted) for the whole evaluation cycle. Mute is volume only; ChosenPart stays set and dependents still see it. Compare with R_silence using strict < . Default 0."
-      part_duration:
-        type: number
-        minimum: 0
-        description: "Start-to-start interval in seconds, rounded to an integer ≥ 1. Independent per track; not a shared bar. The audio file is typically longer — play the full file and start the next clip at this interval so tails overlap."
+        description: >-
+          Start-to-start interval in seconds; converted to an integer >= 1 by
+          AtLeastOne. This is not the audio-file duration.
       repeats:
         type: integer
         minimum: 1
-        description: "Number of starts (including the evaluating start) of the same ChosenPart and mute flag before this track evaluates again. Retriggers do not consume PRNG draws."
-      parts:
+      silence_probability:
+        type: number
+        minimum: 0
+        maximum: 1
+        default: 0
+      clips:
         type: array
-        description: "List of audio parts belonging to this track."
+        minItems: 1
+        description: "Candidate clips in deterministic weighted-selection order."
         items:
-          $ref: "#/definitions/Part"
-    allOf:
-      - if:
-          properties:
-            type:
-              const: primary
-        then:
-          properties:
-            parts:
-              items:
-                not:
-                  required:
-                    - allowed_primary_parts
-      - if:
-          properties:
-            type:
-              const: secondary
-        then:
-          properties:
-            parts:
-              items:
-                not:
-                  required:
-                    - allowed_secondary_parts
-
-  Part:
-    description: "A part entry, which can be a simple string or an object specifying options."
-    oneOf:
-      - type: string
-      - type: object
-        properties:
-          weight:
-            type: number
-            minimum: 0
-            description: "Optional selection weight for the part."
-          allowed_primary_parts:
-            type: array
-            items:
-              type: string
-            description: "If omitted, no primary restriction. If present, at least one current primary ChosenPart must be in this list (exact YAML path). Mute on the primary does not matter. Empty list matches nothing."
-          allowed_secondary_parts:
-            type: array
-            items:
-              type: string
-            description: "If omitted, no secondary restriction. If present, at least one current secondary ChosenPart must be in this list (exact YAML path). Mute on the secondary does not matter. Empty list matches nothing."
+          $ref: "#/definitions/Clip"
+      intragroup_subsequent_weight_modifiers:
+        $ref: "#/definitions/IntragroupMatrix"
+      intergroup_consecutive_weight_modifiers:
+        $ref: "#/definitions/IntergroupMatrix"

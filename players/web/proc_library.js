@@ -162,9 +162,9 @@
 .pslib .pslib-tags li {
   border: 1px solid var(--ps-line);
   border-radius: 999px;
-  padding: 2px 8px;
+  padding: 1px 7px;
   color: var(--ps-muted);
-  font-size: 11px;
+  font-size: 10px;
   white-space: nowrap;
 }
 .pslib .pslib-play {
@@ -187,6 +187,25 @@
   fill: currentColor;
 }
 .pslib .pslib-play:disabled { opacity: 0.45; cursor: default; }
+@media (max-width: 640px) {
+  .pslib .pslib-main {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 3px;
+  }
+  .pslib .pslib-heading {
+    flex: 0 0 auto;
+    width: 100%;
+    font-size: 13px;
+  }
+  .pslib .pslib-tags {
+    flex: 0 0 auto;
+    max-width: 100%;
+    flex-wrap: wrap;
+    overflow: visible;
+  }
+  .pslib .pslib-tags li { font-size: 9px; padding: 1px 6px; }
+}
 `;
 
   function ensureCss() {

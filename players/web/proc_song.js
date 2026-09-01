@@ -1,5 +1,14 @@
 /**
- * ProcsongPlayer — embeddable web player for Procsong packages.
+ * ProcsongPlayer (v2) — embeddable web player for Procsong version-2 packages.
+ *
+ * This implements the version-2 conformance specification (format_version
+ * 2.0.0): tracks are clip groups, dependency/evaluation order is track
+ * declaration order, and candidate weighting uses two distinct matrices:
+ *
+ *   - intragroup_subsequent_weight_modifiers
+ *       this group's PREVIOUS selection → weights this group's NEXT candidates
+ *   - intergroup_consecutive_weight_modifiers
+ *       other groups' CURRENT selections → weight this group's CURRENT candidates
  *
  * A drop-in component: give it a target element and (optionally) song
  * metadata, then call initialise() to render and play() to start audio.
@@ -17,7 +26,6 @@
  *     description: '…',          // optional
  *     tags: ['synth', 'game'],  // optional; string or array
  *     procSongUrl: 'https://….zip',
- *     showDebug: false,
  *     heading: 'Player',          // optional; empty string hides it
  *   });
  *   player.initialise();
@@ -28,8 +36,7 @@
  *   - no imageUrl                         → no image
  *   - no title and no artist              → package URL as text, if set
  *   - title only                          → title, URL beneath
- *   - title and artist                    → title • artist on one line;
- *                                           URL only in the debug panel
+ *   - title and artist                    → title • artist on one line
  *
  * Switch song (e.g. from ProcsongLibrary) and start playback:
  *   await player.play({ title, artist, imageUrl, description, tags, procSongUrl });
@@ -49,7 +56,6 @@
  * @param {string} [options.description]
  * @param {string|string[]} [options.tags]
  * @param {string} [options.procSongUrl]
- * @param {boolean} [options.showDebug=false]
  * @param {string|number} [options.seed=12345]
  * @param {string} [options.heading=Player]
  */
@@ -59,8 +65,7 @@
   const FADE_SEC = 0.008;
   const LOOKAHEAD_SEC = 1;
   const CLOCK_MS = 250;
-  const PHASE = { primary: 0, secondary: 1, standard: 2 };
-  const PART_META = new Set(['weight', 'allowed_primary_parts', 'allowed_secondary_parts', 'path']);
+  const FORMAT_VERSION = '2.0.0';
 
   const PLAYER_CSS = `
 .ps-player {
@@ -76,6 +81,8 @@
   --ps-input: var(--input-bg, #111);
   --ps-load: var(--transport-load, var(--accent, #888));
   --ps-playbar: var(--transport-play, var(--secondary, #666));
+  --ps-clip: var(--viz-clip, #3fb950);
+  --ps-clip-on: var(--viz-clip-on, var(--transport-play, var(--secondary, #5ee0ff)));
   --ps-sans: var(--sans, inherit);
   --ps-mono: var(--mono, ui-monospace, monospace);
   color: var(--ps-text);
@@ -90,8 +97,7 @@
   letter-spacing: 0.08em;
   text-transform: uppercase;
 }
-.ps-player .ps-box,
-.ps-player .ps-details {
+.ps-player .ps-box {
   background: var(--ps-bg);
   border: 1px solid var(--ps-line);
   border-radius: 8px;
@@ -165,7 +171,7 @@
 .ps-player .ps-tags {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: 5px;
   margin: auto 0 0;
   padding: 8px 0 0;
   list-style: none;
@@ -173,9 +179,9 @@
 .ps-player .ps-tags li {
   border: 1px solid var(--ps-line);
   border-radius: 999px;
-  padding: 2px 9px;
+  padding: 1px 8px;
   color: var(--ps-muted);
-  font-size: 12px;
+  font-size: 10px;
 }
 .ps-player .ps-empty {
   margin: 0;
@@ -286,19 +292,6 @@
   height: 12px;
   fill: currentColor;
 }
-.ps-player button.icon {
-  width: 28px;
-  height: 28px;
-  padding: 0;
-  color: var(--ps-muted);
-  flex: 0 0 auto;
-  margin-left: auto;
-}
-.ps-player button.icon span {
-  display: inline-block;
-  transition: transform 0.15s ease;
-}
-.ps-player button.icon[aria-expanded="true"] span { transform: rotate(180deg); }
 .ps-player .ps-volume {
   margin-top: auto;
   line-height: 0;
@@ -315,7 +308,6 @@
   gap: 10px;
   margin-top: 0;
 }
-.ps-player .ps-footer:has(.ps-details-btn),
 .ps-player .ps-footer:has(.ps-transport.loading),
 .ps-player .ps-footer:has(.ps-transport.playing),
 .ps-player .ps-footer:has(.ps-status:not(:empty)) {
@@ -361,87 +353,82 @@
   from { transform: translateX(-120%); }
   to { transform: translateX(280%); }
 }
-.ps-player .ps-details { display: none; }
-.ps-player .ps-details.open { display: block; }
-.ps-player .ps-field {
+.ps-player .ps-viz {
   display: flex;
+  align-items: flex-end;
+  justify-content: space-around;
+  gap: 10px;
+  margin-top: 14px;
+  padding-top: 14px;
+  border-top: 1px solid var(--ps-line);
+  overflow-x: auto;
+}
+.ps-player .ps-viz[hidden] { display: none !important; }
+.ps-player .ps-viz-track {
+  display: flex;
+  flex-direction: column;
   align-items: center;
   gap: 8px;
-  margin: 0 0 12px;
-  color: var(--ps-muted);
-  font-family: var(--ps-mono);
-  font-size: 11px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
+  flex: 1 1 0;
+  min-width: 40px;
 }
-.ps-player .ps-zip-url {
-  flex: 1;
-  min-width: 0;
-  color: var(--ps-text);
-  font: 13px/1.3 var(--ps-mono);
-  text-transform: none;
-  letter-spacing: 0;
-  word-break: break-all;
-}
-.ps-player table {
-  width: 100%;
-  border-collapse: collapse;
-}
-.ps-player th, .ps-player td {
-  text-align: left;
-  padding: 8px 6px;
-  border-bottom: 1px solid var(--ps-line);
-  vertical-align: top;
-}
-.ps-player th {
-  color: var(--ps-muted);
-  font-family: var(--ps-mono);
-  font-size: 11px;
-  font-weight: 500;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-}
-.ps-player .type { font-size: 12px; text-transform: uppercase; letter-spacing: 0.04em; }
-.ps-player .type.primary { color: var(--ps-accent); }
-.ps-player .type.secondary { color: var(--ps-secondary); }
-.ps-player .type.standard { color: var(--ps-standard); }
-.ps-player .part.silent { color: var(--ps-silent); font-style: italic; }
-.ps-player .clock {
-  font-family: var(--ps-mono);
-  font-variant-numeric: tabular-nums;
-  color: var(--ps-muted);
-}
-.ps-player .ps-debug {
+.ps-player .ps-viz-clips {
   display: flex;
-  flex-wrap: wrap;
+  flex-direction: column-reverse;
+  gap: 4px;
   align-items: center;
-  gap: 10px;
-  margin-top: 12px;
 }
-.ps-player .ps-debug p {
-  margin: 0;
+.ps-player .ps-viz-clip {
+  width: 20px;
+  height: 11px;
+  border-radius: 3px;
+  background: var(--ps-clip);
+  opacity: 0.5;
+  transition: background 0.15s ease, opacity 0.15s ease;
+}
+.ps-player .ps-viz-clip.is-current {
+  background: var(--ps-clip-on);
+  opacity: 1;
+  animation: ps-clip-pulse 1.1s ease-in-out infinite;
+}
+.ps-player .ps-viz-clip.is-current.is-muted {
+  animation: none;
+  opacity: 0.45;
+  background: color-mix(in srgb, var(--ps-clip-on) 40%, transparent);
+}
+.ps-player .ps-viz-name {
+  max-width: 76px;
   color: var(--ps-muted);
-  font-size: 13px;
+  font-family: var(--ps-mono);
+  font-size: 10px;
+  letter-spacing: 0.04em;
+  text-align: center;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
-.ps-player .ps-log {
-  display: none;
-  margin: 12px 0 0;
-  max-height: 420px;
-  overflow: auto;
-  padding: 10px 12px;
-  background: var(--ps-input);
-  border: 1px solid var(--ps-line);
-  border-radius: 4px;
-  color: var(--ps-text);
-  font: 12px/1.45 var(--ps-mono);
-  white-space: pre;
+@keyframes ps-clip-pulse {
+  0%, 100% {
+    transform: scale(1);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ps-clip-on) 55%, transparent);
+  }
+  50% {
+    transform: scale(1.18);
+    box-shadow: 0 0 9px 2px color-mix(in srgb, var(--ps-clip-on) 45%, transparent);
+  }
 }
 @media (max-width: 640px) {
   .ps-player .ps-now { flex-wrap: wrap; }
   .ps-player .ps-controls-col {
     margin-left: auto;
     min-height: 0;
+    align-self: flex-start;
+    justify-content: flex-start;
   }
+  .ps-player .ps-volume { margin-top: 8px; }
+  .ps-player .ps-viz { gap: 6px; }
+  .ps-player .ps-viz-clip { width: 16px; }
+  .ps-player .ps-viz-name { font-size: 9px; max-width: 60px; }
 }
 `;
 
@@ -510,6 +497,9 @@
     return found;
   }
 
+  // ---------------------------------------------------------------------------
+  // PRNG (spec §14): one shared unsigned 64-bit LCG, two draws per evaluation.
+  // ---------------------------------------------------------------------------
   class ProcsongRNG {
     constructor(seed) {
       this.state = BigInt(seed) & 0xFFFFFFFFFFFFFFFFn;
@@ -522,132 +512,372 @@
     }
   }
 
+  // spec §12: AtLeastOne
   function atLeastOne(n) {
-    const value = Math.round(Number(n));
-    return value > 0 ? value : 1;
+    const value = Number(n);
+    if (!Number.isFinite(value)) return 1;
+    const rounded = Math.floor(value + 0.5);
+    return rounded > 0 ? rounded : 1;
   }
 
-  function parsePart(entry) {
-    if (typeof entry === 'string') {
-      return { path: entry, weight: 1, allowed_primary_parts: null, allowed_secondary_parts: null };
-    }
-    if (!entry || typeof entry !== 'object') throw new Error('Invalid part entry');
+  // ---------------------------------------------------------------------------
+  // Parsing (spec §3–7) — array-based tracks, clip groups, and two matrices.
+  // ---------------------------------------------------------------------------
 
-    let path = typeof entry.path === 'string' ? entry.path : null;
-    let nested = {};
-    for (const key of Object.keys(entry)) {
-      if (PART_META.has(key)) continue;
-      path = key;
-      if (entry[key] && typeof entry[key] === 'object') nested = entry[key];
-      break;
+  function isPlainObject(value) {
+    return Boolean(value) && typeof value === 'object' && !Array.isArray(value);
+  }
+
+  function parseWeight(value, context) {
+    if (value == null) return 1;
+    const num = Number(value);
+    if (!Number.isFinite(num) || num < 0) {
+      throw new Error(`${context} must be a non-negative number (got ${JSON.stringify(value)})`);
     }
+    return num;
+  }
+
+  function parseClip(entry, trackName, index) {
+    const where = `Track "${trackName}" clip #${index + 1}`;
+    if (!isPlainObject(entry)) throw new Error(`${where} must be a mapping with id and path`);
+    const id = entry.id;
+    const path = entry.path;
+    if (typeof id !== 'string' || !id.trim()) throw new Error(`${where} is missing a string id`);
+    if (typeof path !== 'string' || !path.trim()) throw new Error(`${where} (${id}) is missing a string path`);
     return {
+      id,
       path,
-      weight: Number(nested.weight ?? entry.weight ?? 1),
-      allowed_primary_parts: nested.allowed_primary_parts ?? entry.allowed_primary_parts ?? null,
-      allowed_secondary_parts: nested.allowed_secondary_parts ?? entry.allowed_secondary_parts ?? null,
+      weight: parseWeight(entry.weight, `${where} (${id}) weight`),
     };
+  }
+
+  // Read a raw matrix into { columns:[ids], rows:{id:[numbers]} }. Structural
+  // (shape) validation only; cross-reference checks happen in validateDefinition.
+  function parseMatrix(raw, trackName, kind) {
+    if (raw == null) return null;
+    const where = `Track "${trackName}" ${kind}`;
+    if (!isPlainObject(raw)) throw new Error(`${where} must be a mapping with columns and rows`);
+    if (!Array.isArray(raw.columns)) throw new Error(`${where} is missing a columns array`);
+    if (!isPlainObject(raw.rows)) throw new Error(`${where} is missing a rows mapping`);
+
+    const columns = raw.columns.map((col, i) => {
+      if (typeof col !== 'string' || !col.trim()) {
+        throw new Error(`${where} column #${i + 1} must be a clip id string`);
+      }
+      return col;
+    });
+    if (new Set(columns).size !== columns.length) {
+      throw new Error(`${where} columns must be unique clip ids`);
+    }
+
+    const rows = {};
+    for (const [rowKey, values] of Object.entries(raw.rows)) {
+      if (!Array.isArray(values)) throw new Error(`${where} row "${rowKey}" must be an array`);
+      rows[rowKey] = values.map((v, i) => parseWeight(v, `${where} row "${rowKey}" cell #${i + 1}`));
+    }
+    return { columns, rows };
+  }
+
+  function parseTrack(spec, index) {
+    const where = `Track #${index + 1}`;
+    if (!isPlainObject(spec)) throw new Error(`${where} must be a mapping`);
+    const name = spec.name;
+    if (typeof name !== 'string' || !name.trim()) throw new Error(`${where} is missing a string name`);
+    if (name.includes('/')) throw new Error(`Track "${name}" name must not contain "/"`);
+
+    if (spec.clip_length == null) throw new Error(`Track "${name}" is missing clip_length`);
+    const clipLengthNum = Number(spec.clip_length);
+    if (!Number.isFinite(clipLengthNum) || clipLengthNum < 0) {
+      throw new Error(`Track "${name}" clip_length must be a non-negative number`);
+    }
+
+    const repeats = spec.repeats;
+    if (!Number.isInteger(repeats) || repeats < 1) {
+      throw new Error(`Track "${name}" repeats must be an integer >= 1`);
+    }
+
+    let silenceProbability = 0;
+    if (spec.silence_probability != null) {
+      silenceProbability = Number(spec.silence_probability);
+      if (!Number.isFinite(silenceProbability) || silenceProbability < 0 || silenceProbability > 1) {
+        throw new Error(`Track "${name}" silence_probability must be between 0 and 1`);
+      }
+    }
+
+    if (!Array.isArray(spec.clips) || !spec.clips.length) {
+      throw new Error(`Track "${name}" must define a non-empty clips array`);
+    }
+    const clips = spec.clips.map((clip, i) => parseClip(clip, name, i));
+
+    return {
+      name,
+      declIndex: index,
+      loopSeconds: atLeastOne(spec.clip_length),
+      repeats,
+      silenceProbability,
+      clips,
+      intra: parseMatrix(spec.intragroup_subsequent_weight_modifiers, name, 'intragroup_subsequent_weight_modifiers'),
+      inter: parseMatrix(spec.intergroup_consecutive_weight_modifiers, name, 'intergroup_consecutive_weight_modifiers'),
+    };
+  }
+
+  function arraysEqual(a, b) {
+    if (a.length !== b.length) return false;
+    for (let i = 0; i < a.length; i += 1) if (a[i] !== b[i]) return false;
+    return true;
+  }
+
+  function sameSet(a, b) {
+    if (a.length !== b.length) return false;
+    const set = new Set(a);
+    return b.every((item) => set.has(item));
+  }
+
+  // Cross-reference / semantic validation (spec §17). JSON Schema handles the
+  // basic shape; these rules cannot be expressed there.
+  function validateDefinition(tracks) {
+    // 1. unique track names
+    const trackNames = tracks.map((t) => t.name);
+    if (new Set(trackNames).size !== trackNames.length) {
+      throw new Error('Track names must be unique');
+    }
+
+    // 2. clip ids unique across the whole definition; also map id -> owner track
+    const clipOwner = new Map();
+    for (const track of tracks) {
+      for (const clip of track.clips) {
+        if (clipOwner.has(clip.id)) {
+          throw new Error(`Clip id "${clip.id}" is used more than once (must be unique across the whole definition)`);
+        }
+        clipOwner.set(clip.id, track);
+      }
+    }
+
+    for (const track of tracks) {
+      const clipIds = track.clips.map((c) => c.id);
+
+      // Intra-group matrix (spec §6.1)
+      if (track.intra) {
+        const m = track.intra;
+        // 3. columns exactly equal this track's clip ids, in declaration order
+        if (!arraysEqual(m.columns, clipIds)) {
+          throw new Error(`Track "${track.name}" intra columns must equal its clip ids in declaration order`);
+        }
+        const rowKeys = Object.keys(m.rows);
+        // 4. rows contain exactly those same clip ids (one row each)
+        if (!sameSet(rowKeys, clipIds)) {
+          throw new Error(`Track "${track.name}" intra rows must contain exactly one row for each clip id`);
+        }
+        // 5. every row length equals column count
+        for (const [key, values] of Object.entries(m.rows)) {
+          if (values.length !== m.columns.length) {
+            throw new Error(`Track "${track.name}" intra row "${key}" length must equal column count (${m.columns.length})`);
+          }
+        }
+      }
+
+      // Inter-group matrix (spec §7.1, §7.2)
+      if (track.inter) {
+        const m = track.inter;
+        const rowKeys = Object.keys(m.rows);
+        // 6. row keys exactly equal the downstream track's clip ids
+        if (!sameSet(rowKeys, clipIds)) {
+          throw new Error(`Track "${track.name}" inter rows must contain exactly one row for each clip id`);
+        }
+        // 7. every row length equals column count
+        for (const [key, values] of Object.entries(m.rows)) {
+          if (values.length !== m.columns.length) {
+            throw new Error(`Track "${track.name}" inter row "${key}" length must equal column count (${m.columns.length})`);
+          }
+        }
+
+        // 8/9. every column resolves to a clip on an EARLIER track
+        const repOrder = [];
+        const seenTracks = new Set();
+        for (const col of m.columns) {
+          const owner = clipOwner.get(col);
+          if (!owner) {
+            throw new Error(`Track "${track.name}" inter column "${col}" is not a known clip id`);
+          }
+          if (owner.declIndex >= track.declIndex) {
+            throw new Error(`Track "${track.name}" inter column "${col}" references clip on the same or a later track`);
+          }
+          if (!seenTracks.has(owner.declIndex)) {
+            seenTracks.add(owner.declIndex);
+            repOrder.push(owner);
+          }
+        }
+
+        // 11. represented upstream tracks appear in top-level declaration order
+        for (let i = 1; i < repOrder.length; i += 1) {
+          if (repOrder[i].declIndex <= repOrder[i - 1].declIndex) {
+            throw new Error(`Track "${track.name}" inter columns must list upstream tracks in declaration order`);
+          }
+        }
+
+        // 10. each represented upstream track contributes all its clip ids
+        //     exactly once, in that track's clip declaration order.
+        for (const upstream of repOrder) {
+          const upstreamIds = upstream.clips.map((c) => c.id);
+          const colsForUpstream = m.columns.filter((col) => clipOwner.get(col) === upstream);
+          if (!arraysEqual(colsForUpstream, upstreamIds)) {
+            throw new Error(
+              `Track "${track.name}" inter columns for upstream track "${upstream.name}" must be all of its clip ids in declaration order`,
+            );
+          }
+        }
+      }
+    }
+
+    return tracks;
   }
 
   function parseDefinition(yamlText) {
     const raw = jsyaml.load(yamlText.replace(/^\uFEFF/, ''));
-    if (!raw || typeof raw !== 'object') throw new Error('definition.yml did not contain a track map');
-
-    const tracks = [];
-    for (const [name, spec] of Object.entries(raw)) {
-      if (!spec || typeof spec !== 'object') continue;
-      tracks.push({
-        name,
-        declIndex: tracks.length,
-        type: spec.type,
-        probability_silence: Number(spec.probability_silence ?? 0),
-        loopSeconds: atLeastOne(spec.part_duration),
-        repeats: atLeastOne(spec.repeats),
-        parts: (spec.parts || []).map(parsePart).filter((part) => part.path),
-      });
+    if (!isPlainObject(raw)) throw new Error('definition.yml did not contain a mapping');
+    if (String(raw.format_version) !== FORMAT_VERSION) {
+      throw new Error(`Unsupported format_version "${raw.format_version}" (expected ${FORMAT_VERSION})`);
     }
-    if (!tracks.length) throw new Error('No tracks found in definition.yml');
-    tracks.sort((a, b) => {
-      const phase = (PHASE[a.type] ?? 9) - (PHASE[b.type] ?? 9);
-      return phase || a.declIndex - b.declIndex;
-    });
-    return tracks;
-  }
-
-  function weightedSelect(candidates, rPart) {
-    let total = 0;
-    for (const part of candidates) total += part.weight;
-    const target = rPart * total;
-    let cumulative = 0;
-    for (const part of candidates) {
-      cumulative += part.weight;
-      if (cumulative > target) return part;
+    if (!Array.isArray(raw.tracks) || !raw.tracks.length) {
+      throw new Error('definition.yml must contain a non-empty tracks array');
     }
-    return candidates[candidates.length - 1];
+    const tracks = raw.tracks.map((spec, i) => parseTrack(spec, i));
+    return validateDefinition(tracks);
   }
 
-  function allows(allowed, active) {
-    return allowed == null || allowed.some((name) => active.includes(name));
-  }
-
-  function partLabel(chosen, muted) {
-    if (!chosen) return 'silent';
-    return muted ? `${chosen} (muted)` : chosen;
-  }
-
+  // ---------------------------------------------------------------------------
+  // Engine (spec §8–13) — matrix-weighted selection with declaration-order
+  // evaluation and independent per-track clocks.
+  // ---------------------------------------------------------------------------
   class ProcsongEngine {
     constructor(tracks, seed) {
       this.rng = new ProcsongRNG(seed);
+      this.tracks = tracks;
+
+      // Global clip id -> declaration index of owning track.
+      this.clipOwnerIndex = new Map();
+      tracks.forEach((track) => {
+        track.clips.forEach((clip) => this.clipOwnerIndex.set(clip.id, track.declIndex));
+      });
+
       this.state = tracks.map((track) => ({
         track,
+        chosenId: null,
         chosen: null,
         muted: true,
         nextLoop: 0,
         remaining: 0,
+        intraColIndex: track.intra ? new Map(track.intra.columns.map((id, i) => [id, i])) : null,
+        interColIndex: track.inter ? new Map(track.inter.columns.map((id, i) => [id, i])) : null,
+        interRepresented: [],
       }));
-    }
 
-    chosenOfType(type) {
-      return this.state.filter((slot) => slot.track.type === type && slot.chosen).map((slot) => slot.chosen);
-    }
-
-    candidatesFor(track) {
-      if (track.type === 'primary') return track.parts;
-      const primary = this.chosenOfType('primary');
-      const secondary = this.chosenOfType('secondary');
-      return track.parts.filter((part) => {
-        if (track.type === 'secondary') return allows(part.allowed_primary_parts, primary);
-        return allows(part.allowed_primary_parts, primary) && allows(part.allowed_secondary_parts, secondary);
+      // Precompute, per track, the ordered list of upstream track slots that
+      // are represented in its inter-group columns.
+      this.state.forEach((slot) => {
+        if (!slot.track.inter) return;
+        const seen = new Set();
+        const represented = [];
+        for (const col of slot.track.inter.columns) {
+          const ownerIndex = this.clipOwnerIndex.get(col);
+          if (ownerIndex == null || seen.has(ownerIndex)) continue;
+          seen.add(ownerIndex);
+          represented.push(this.state[ownerIndex]);
+        }
+        slot.interRepresented = represented;
       });
     }
 
-    selectPart(track) {
-      const rPart = this.rng.nextFloat();
-      const rSilence = this.rng.nextFloat();
-      const candidates = this.candidatesFor(track);
-      const chosen = candidates.length ? weightedSelect(candidates, rPart).path : null;
-      return { rPart, rSilence, chosen, muted: !chosen || rSilence < track.probability_silence };
+    // spec §10.1
+    getIntraModifier(slot, clip) {
+      if (slot.chosenId == null) return 1;
+      const intra = slot.track.intra;
+      if (!intra) return 1;
+      const col = slot.intraColIndex.get(clip.id);
+      return intra.rows[slot.chosenId][col];
     }
 
+    // spec §10.2
+    getInterModifier(slot, clip) {
+      const inter = slot.track.inter;
+      if (!inter) return 1;
+      const row = inter.rows[clip.id];
+      let result = 1;
+      for (const upstream of slot.interRepresented) {
+        if (upstream.chosenId == null) continue;
+        const col = slot.interColIndex.get(upstream.chosenId);
+        result *= row[col];
+      }
+      return result;
+    }
+
+    // spec §9, §11 — exactly two draws, weighted walk in declaration order.
+    evaluate(slot) {
+      const rPart = this.rng.nextFloat();
+      const rSilence = this.rng.nextFloat();
+
+      const clips = slot.track.clips;
+      const weights = new Array(clips.length);
+      let total = 0;
+      for (let i = 0; i < clips.length; i += 1) {
+        const clip = clips[i];
+        const w = clip.weight * this.getIntraModifier(slot, clip) * this.getInterModifier(slot, clip);
+        weights[i] = w;
+        total += w;
+      }
+
+      let chosenId = null;
+      let chosen = null;
+      if (total > 0) {
+        const target = rPart * total;
+        let running = 0;
+        for (let i = 0; i < clips.length; i += 1) {
+          running += weights[i];
+          if (running > target) {
+            chosenId = clips[i].id;
+            chosen = clips[i].path;
+            break;
+          }
+        }
+      }
+
+      const muted = chosen == null ? true : rSilence < slot.track.silenceProbability;
+      return { rPart, rSilence, chosenId, chosen, muted };
+    }
+
+    // spec §12 — Pulse. Retriggers consume no PRNG draws.
     pulse(slot, tick) {
       let evaluated = null;
       if (slot.remaining <= 0) {
-        evaluated = this.selectPart(slot.track);
+        evaluated = this.evaluate(slot);
+        slot.chosenId = evaluated.chosenId;
         slot.chosen = evaluated.chosen;
         slot.muted = evaluated.muted;
         slot.remaining = slot.track.repeats;
       }
       slot.remaining -= 1;
       slot.nextLoop = tick + slot.track.loopSeconds;
-      return { track: slot.track, chosen: slot.chosen, muted: slot.muted, ...(evaluated || {}) };
+      return {
+        track: slot.track,
+        chosenId: slot.chosenId,
+        chosen: slot.chosen,
+        muted: slot.muted,
+        ...(evaluated || {}),
+      };
     }
 
     peekNextTick() {
       return Math.min(...this.state.map((slot) => slot.nextLoop));
     }
 
+    // spec §13 — at one shared second, tracks pulse in declaration order so a
+    // later track immediately sees an earlier track's newly queued selection.
     evaluateDue(tick) {
-      return this.state.filter((slot) => slot.nextLoop === tick).map((slot) => this.pulse(slot, tick));
+      const results = [];
+      for (const slot of this.state) {
+        if (slot.nextLoop === tick) results.push(this.pulse(slot, tick));
+      }
+      return results;
     }
 
     trace(limit = 100) {
@@ -714,6 +944,7 @@
     return bytes.buffer;
   }
 
+  // spec §3 — file lookup may ignore case or a single extension.
   function clipKey(path) {
     return path.replace(/\\/g, '/').replace(/\.[^/.]+$/, '').toLowerCase();
   }
@@ -752,37 +983,12 @@
   const FADE_IN = equalPowerCurve(32, (t) => Math.sin(t * Math.PI * 0.5));
   const FADE_OUT = equalPowerCurve(32, (t) => Math.cos(t * Math.PI * 0.5));
 
-  function formatChoices(rows, seed) {
-    const cols = (row) =>
-      [
-        String(row.n).padStart(3),
-        String(row.t).padEnd(6),
-        row.track.padEnd(12),
-        row.rPart.toFixed(8).padEnd(12),
-        (row.chosen || '(none)').padEnd(28),
-        row.rSilence.toFixed(8).padEnd(12),
-        row.muted ? 'yes' : 'no',
-      ].join('  ');
-
-    const header = ['  #', 't'.padEnd(6), 'track'.padEnd(12), 'R_part'.padEnd(12), 'chosen'.padEnd(28), 'R_silence'.padEnd(12), 'muted'].join('  ');
-    const lines = rows.map((row, i) => cols({ n: i + 1, ...row }));
-    return `seed ${seed}  first ${rows.length} evaluations\n${header}\n${lines.join('\n')}`;
-  }
-
-  function td(text, className) {
-    const cell = document.createElement('td');
-    if (className) cell.className = className;
-    cell.textContent = text;
-    return cell;
-  }
-
   class ProcsongPlayer {
     /**
      * @param {object} options See file header for the public API.
      */
     constructor(options = {}) {
       this.target = options.target;
-      this.showDebug = Boolean(options.showDebug);
       this.heading = headingText(options.heading, 'Player');
       this.seed = options.seed != null && String(options.seed).trim() !== '' ? String(options.seed) : '12345';
 
@@ -807,6 +1013,7 @@
       this.loadedUrl = null;
       this.playSeq = 0;
       this._busy = false;
+      this.vizBoxes = null;
 
       this.setSong(options);
     }
@@ -846,20 +1053,14 @@
         desc: this.el.querySelector('.ps-desc'),
         tags: this.el.querySelector('.ps-tags'),
         empty: this.el.querySelector('.ps-empty'),
-        urlDebug: this.el.querySelector('.ps-url-debug'),
-        zipUrl: this.el.querySelector('.ps-zip-url'),
         seed: this.el.querySelector('.ps-seed'),
         playBtn: this.el.querySelector('.ps-play'),
         stopBtn: this.el.querySelector('.ps-stop'),
-        generateBtn: this.el.querySelector('.ps-generate'),
-        detailsBtn: this.el.querySelector('.ps-details-btn'),
-        details: this.el.querySelector('.ps-details'),
         volume: this.el.querySelector('.ps-volume-input'),
         status: this.el.querySelector('.ps-status'),
         transport: this.el.querySelector('.ps-transport'),
-        tracks: this.el.querySelector('.ps-tracks'),
+        viz: this.el.querySelector('.ps-viz'),
         clock: this.el.querySelector('.ps-clock'),
-        log: this.el.querySelector('.ps-log'),
       };
       this.bindUi();
       this.updateMeta();
@@ -901,7 +1102,9 @@
         this.audioOrigin = this.ctx.currentTime + 0.08;
         this.setBusy(false);
         this.syncPlayButton();
-        this.setBar('playing');
+        this.setBar(null);
+        this.buildViz();
+        this.setVizVisible(true);
         this.applyResults(0, this.engine.evaluateDue(0));
         this.schedulerPulse();
         this.emit('procsong:play', {
@@ -930,7 +1133,8 @@
         this.syncPlayButton();
         this.setStatus('');
         this.setBar(null);
-        this.renderTracks();
+        this.clearViz();
+        this.setVizVisible(false);
         this.syncControls();
       }
       if (wasPlaying) this.emit('procsong:stop');
@@ -954,7 +1158,6 @@
     }
 
     shellHtml() {
-      const debug = this.showDebug;
       const label = this.heading
         ? `<p class="ps-label">${escapeHtml(this.heading)}</p>`
         : '';
@@ -999,41 +1202,9 @@
             <div class="ps-footer">
               <div class="ps-status"></div>
               <div class="ps-transport"></div>
-              ${debug ? `
-                <button class="ps-details-btn secondary icon" type="button" aria-expanded="false" title="Details">
-                  <span aria-hidden="true">▼</span>
-                </button>
-              ` : ''}
             </div>
+            <div class="ps-viz" hidden></div>
           </div>
-          ${debug ? `
-            <div class="ps-details">
-              <p class="ps-field ps-url-debug">
-                URL
-                <span class="ps-zip-url"></span>
-              </p>
-              <table>
-                <thead>
-                  <tr>
-                    <th>Track</th>
-                    <th>Type</th>
-                    <th>Length</th>
-                    <th>Now playing</th>
-                    <th>Next start</th>
-                    <th>Next part</th>
-                  </tr>
-                </thead>
-                <tbody class="ps-tracks">
-                  <tr><td colspan="6" class="clock">Play to load a package.</td></tr>
-                </tbody>
-              </table>
-              <div class="ps-debug">
-                <button class="ps-generate secondary" type="button">Generate</button>
-                <p>Dump the first 100 part evaluations for this seed.</p>
-              </div>
-              <pre class="ps-log"></pre>
-            </div>
-          ` : ''}
         </div>
       `;
     }
@@ -1047,19 +1218,6 @@
       this.ui.volume.addEventListener('input', () => {
         if (this.master) this.master.gain.value = Number(this.ui.volume.value);
       });
-      if (this.ui.detailsBtn && this.ui.details) {
-        this.ui.detailsBtn.addEventListener('click', () => {
-          this.setDetailsOpen(!this.ui.details.classList.contains('open'));
-        });
-      }
-      if (this.ui.generateBtn) {
-        this.ui.generateBtn.addEventListener('click', () => {
-          this.generate().catch((err) => {
-            this.setBar(null);
-            this.setStatus(`Generate failed: ${err.message || err}`);
-          });
-        });
-      }
     }
 
     register() {
@@ -1072,10 +1230,6 @@
       this.el.dispatchEvent(new CustomEvent(name, { bubbles: true, detail: detail || {} }));
     }
 
-    syncUrlDisplay() {
-      if (this.ui?.zipUrl) this.ui.zipUrl.textContent = this.procSongUrl;
-    }
-
     updateMeta() {
       if (!this.ui) return;
       const title = this.title.trim();
@@ -1083,7 +1237,6 @@
       const imageUrl = this.imageUrl.trim();
       const url = this.procSongUrl.trim();
       const hasTitleAndArtist = Boolean(title && artist);
-      this.syncUrlDisplay();
 
       if (imageUrl) {
         if (this.ui.coverWrap) this.ui.coverWrap.hidden = false;
@@ -1139,8 +1292,6 @@
         this.ui.subtitle.classList.remove('is-url');
       }
 
-      if (this.ui.urlDebug) this.ui.urlDebug.hidden = !url;
-
       const description = (this.description || '').trim();
       if (this.ui.desc) {
         this.ui.desc.hidden = !description;
@@ -1183,12 +1334,6 @@
       this.ui.playBtn.setAttribute('aria-label', playing ? 'Playing' : 'Play');
     }
 
-    setDetailsOpen(open) {
-      if (!this.ui.details || !this.ui.detailsBtn) return;
-      this.ui.details.classList.toggle('open', open);
-      this.ui.detailsBtn.setAttribute('aria-expanded', String(open));
-    }
-
     setBar(mode) {
       this.ui.transport.classList.remove('loading', 'playing');
       if (mode) this.ui.transport.classList.add(mode);
@@ -1208,9 +1353,6 @@
       if (this.ui.stopBtn) this.ui.stopBtn.disabled = !ready || !this.playing;
       if (this.ui.volume) this.ui.volume.disabled = !ready;
       if (this.ui.seed) this.ui.seed.disabled = !ready;
-      if (this.ui.detailsBtn) this.ui.detailsBtn.disabled = !ready;
-      if (this.ui.generateBtn) this.ui.generateBtn.disabled = !ready || this._busy;
-      if (!ready) this.setDetailsOpen(false);
     }
 
     seedValue() {
@@ -1258,7 +1400,6 @@
         this.loadedUrl = url;
         this.procSongUrl = url;
         this.engine = null;
-        this.renderTracks();
         this.setStatus('');
         this.setBar(null);
         return pkg;
@@ -1270,7 +1411,7 @@
 
     async decodeClips() {
       const ctx = this.ensureContext();
-      const paths = [...new Set(this.pkg.tracks.flatMap((track) => track.parts.map((part) => part.path)))];
+      const paths = [...new Set(this.pkg.tracks.flatMap((track) => track.clips.map((clip) => clip.path)))];
       const missing = paths.filter((path) => !this.buffers.has(path));
       if (!missing.length || !this.pkg.clipBytes) return;
 
@@ -1306,6 +1447,7 @@
       this.sources.clear();
     }
 
+    // spec §15 — start the whole referenced clip; do not crop to LoopSeconds.
     startFullClip(buffer, when) {
       const src = this.ctx.createBufferSource();
       const fade = this.ctx.createGain();
@@ -1329,7 +1471,7 @@
     }
 
     applyResults(tick, results) {
-      this.renderTracks();
+      this.renderViz();
       for (const result of results) {
         if (result.muted || !result.chosen) continue;
         const buffer = this.buffers.get(result.chosen);
@@ -1351,51 +1493,71 @@
       this.timer = setTimeout(() => this.schedulerPulse(), CLOCK_MS);
     }
 
-    renderTracks() {
-      if (!this.ui?.tracks) return;
+    // Build the per-track clip visualisation: one column per track, a small box
+    // per clip, with the track name underneath.
+    buildViz() {
+      if (!this.ui?.viz) return;
+      this.vizBoxes = new Map();
+      this.ui.viz.replaceChildren();
       const tracks = this.pkg?.tracks || [];
-      this.ui.tracks.replaceChildren();
       if (!tracks.length) return;
       for (const track of tracks) {
-        const slot = this.engine?.state.find((item) => item.track === track);
-        const chosen = slot?.chosen;
-        const muted = slot?.muted ?? true;
-        const nextKnown = Boolean(slot && slot.remaining > 0);
-        const row = document.createElement('tr');
-        row.append(
-          td(track.name),
-          td(track.type, `type ${track.type}`),
-          td(`${track.loopSeconds}s × ${track.repeats}`, 'clock'),
-          td(partLabel(chosen, muted), !chosen || muted ? 'part silent' : 'part'),
-          td(slot ? `${slot.nextLoop} s` : '—', 'clock'),
-          td(nextKnown ? partLabel(chosen, muted) : '—', !nextKnown || !chosen || muted ? 'part silent' : 'part'),
-        );
-        this.ui.tracks.appendChild(row);
+        const col = document.createElement('div');
+        col.className = 'ps-viz-track';
+
+        const clipsWrap = document.createElement('div');
+        clipsWrap.className = 'ps-viz-clips';
+        const boxes = track.clips.map((clip) => {
+          const box = document.createElement('span');
+          box.className = 'ps-viz-clip';
+          box.title = clip.id;
+          clipsWrap.appendChild(box);
+          return box;
+        });
+
+        const name = document.createElement('div');
+        name.className = 'ps-viz-name';
+        name.textContent = track.name;
+        name.title = track.name;
+
+        col.append(clipsWrap, name);
+        this.ui.viz.appendChild(col);
+        this.vizBoxes.set(track, boxes);
       }
     }
 
-    async generate() {
-      this.setBusy(true);
-      try {
-        const pkg = await this.loadPackage();
-        const seed = this.seedValue();
-        const rows = new ProcsongEngine(pkg.tracks, seed).trace(100).map((row) => ({
-          t: row.t,
-          track: row.track.name,
-          rPart: row.rPart,
-          chosen: row.chosen,
-          rSilence: row.rSilence,
-          muted: row.muted,
-        }));
-        this.ui.log.textContent = formatChoices(rows, seed.toString());
-        this.ui.log.style.display = 'block';
-        this.setDetailsOpen(true);
-        this.setStatus('');
-      } finally {
-        this.setBusy(false);
+    setVizVisible(show) {
+      if (this.ui?.viz) this.ui.viz.hidden = !show;
+    }
+
+    clearViz() {
+      if (!this.vizBoxes) return;
+      for (const boxes of this.vizBoxes.values()) {
+        boxes.forEach((box) => box.classList.remove('is-current', 'is-muted'));
+      }
+    }
+
+    // Highlight the current clip per track: blue + pulse when audible, a dim
+    // blue when the current selection is muted (silent but still selected).
+    renderViz() {
+      if (!this.vizBoxes) return;
+      for (const [track, boxes] of this.vizBoxes) {
+        const slot = this.engine?.state.find((item) => item.track === track);
+        const chosenId = slot?.chosen ? slot.chosenId : null;
+        const muted = slot?.muted ?? true;
+        track.clips.forEach((clip, i) => {
+          const current = chosenId != null && clip.id === chosenId;
+          boxes[i].classList.toggle('is-current', current);
+          boxes[i].classList.toggle('is-muted', current && muted);
+        });
       }
     }
   }
 
   global.ProcsongPlayer = ProcsongPlayer;
+
+  // Expose internals for headless testing / conformance checks (spec §19).
+  if (typeof module !== 'undefined' && module.exports) {
+    module.exports = { ProcsongPlayer, ProcsongEngine, ProcsongRNG, parseDefinition, validateDefinition, atLeastOne };
+  }
 })(typeof window !== 'undefined' ? window : this);

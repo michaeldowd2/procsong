@@ -3,25 +3,25 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Procsong — infinite procedural music</title>
-  <meta name="description" content="An infinite, clip-based procedural music format. Load a library, pick a song, bookmark the page, and share it with anyone, anywhere.">
+  <title>Procsong v2 — infinite procedural music</title>
+  <meta name="description" content="An infinite, clip-based procedural music format (version 2). Load a library, pick a song, bookmark the page, and share it with anyone, anywhere.">
   <meta name="theme-color" content="#e4b45a">
-  <link rel="canonical" href="https://michaeldowd2.github.io/procsong/players/web/">
+  <link rel="canonical" href="https://michaeldowd2.github.io/procsong/players/web_v2/">
 
   <meta property="og:type" content="website">
   <meta property="og:site_name" content="Procsong">
-  <meta property="og:title" content="Procsong — infinite procedural music">
+  <meta property="og:title" content="Procsong v2 — infinite procedural music">
   <meta property="og:description" content="Clip-based music that keeps going. Create procsongs, load a library, bookmark the link, and share it with anyone, anywhere.">
-  <meta property="og:image" content="https://michaeldowd2.github.io/procsong/players/web/og.png?v=2">
+  <meta property="og:image" content="https://michaeldowd2.github.io/procsong/players/web_v2/og.png?v=2">
   <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="1200">
   <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Procsong — infinite clip-based procedural music">
 
   <meta name="twitter:card" content="summary_large_image">
-  <meta name="twitter:title" content="Procsong — infinite procedural music">
+  <meta name="twitter:title" content="Procsong v2 — infinite procedural music">
   <meta name="twitter:description" content="Clip-based music that keeps going. Create procsongs, load a library, bookmark the link, and share it with anyone, anywhere.">
-  <meta name="twitter:image" content="https://michaeldowd2.github.io/procsong/players/web/og.png?v=2">
+  <meta name="twitter:image" content="https://michaeldowd2.github.io/procsong/players/web_v2/og.png?v=2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Monoton&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet">
@@ -80,6 +80,19 @@
         0 0 22px rgba(228, 180, 90, 0.35),
         0 0 48px rgba(255, 79, 216, 0.4);
       margin: 0 0 8px;
+    }
+
+    .version-badge {
+      display: inline-block;
+      margin-left: 0.4em;
+      padding: 2px 10px;
+      border-radius: 999px;
+      border: 1px solid color-mix(in srgb, var(--neon) 42%, var(--line));
+      font: 500 0.9rem/1 var(--mono);
+      letter-spacing: 0.12em;
+      color: var(--neon);
+      vertical-align: middle;
+      text-shadow: 0 0 12px rgba(255, 79, 216, 0.35);
     }
 
     .lede {
@@ -273,7 +286,7 @@
   </style>
 </head>
 <body>
-  <h1>Procsong</h1>
+  <h1>Procsong<span class="version-badge">v2</span></h1>
   <p class="lede">
     An infinite, clip-based procedural music format.
     <a href="#help-procsong">Create some procsongs</a>,
@@ -295,7 +308,7 @@
     <div class="library-load">
       <label class="field">
         Library URL
-        <input id="libraryUrl" type="text" spellcheck="false">
+        <input id="libraryUrl" type="text" spellcheck="false" placeholder="https://…/library.csv">
       </label>
       <button id="loadLibraryBtn" type="button">Load</button>
     </div>
@@ -308,36 +321,69 @@
     <summary>How to make procsongs and libraries…</summary>
     <div class="help-links">
     <details class="make-library" id="help-procsong">
-      <summary>How to make a procsong…</summary>
+      <summary>How to make a procsong (version 2)…</summary>
       <div class="help-panel">
         <p>
           A procsong is a zip of audio clips plus a <code>definition.yml</code>. The same zip and seed
           always produce the same arrangement: tracks of different lengths overlap and recombine, so
           the piece keeps going without a fixed loop.
         </p>
+        <p>
+          Version 2 gives each track a group of <code>clips</code> (each with an <code>id</code>,
+          <code>path</code>, and optional <code>weight</code>) and two optional matrices that shape which
+          clip gets chosen:
+        </p>
+        <ul>
+          <li>
+            <code>intragroup_subsequent_weight_modifiers</code> — this track's <em>previous</em> clip
+            weights its <em>next</em> candidate clips (e.g. lean toward repeating the same clip).
+          </li>
+          <li>
+            <code>intergroup_consecutive_weight_modifiers</code> — <em>other, earlier</em> tracks' current
+            clips weight this track's candidates now (e.g. only allow certain bass clips while certain
+            organ clips are playing). A downstream track may only reference tracks declared before it.
+          </li>
+        </ul>
         <ol>
           <li>Record a few interchangeable clips per track (e.g. two drum loops). Make each wav a couple of seconds longer than the start interval so tails overlap.</li>
           <li>Put them in folders named after the track, and write a <code>definition.yml</code> next to those folders.</li>
           <li>Zip the yaml and the clip folders together, host the zip, then add its URL to a library.</li>
         </ol>
-        <p>Minimal <code>definition.yml</code> — one drums track that picks a clip every 8 seconds:</p>
-        <pre>Drums:
-  type: primary
-  part_duration: 8
-  repeats: 4
-  probability_silence: 0
-  parts:
-    - Drums/A.wav
-    - Drums/B.wav</pre>
+        <p>Minimal <code>definition.yml</code> — a drums track and an organ track that follows it:</p>
+        <pre>format_version: 2.0.0
+tracks:
+  - name: Drums
+    clip_length: 8
+    repeats: 4
+    silence_probability: 0
+    clips:
+      - {id: d1, path: "Drums/A.wav", weight: 1}
+      - {id: d2, path: "Drums/B.wav", weight: 1}
+    intragroup_subsequent_weight_modifiers:
+      columns: [d1, d2]
+      rows:
+        d1: [1.25, 1]     # slightly prefer repeating d1
+        d2: [1, 1.25]
+  - name: Organ
+    clip_length: 12
+    repeats: 2
+    clips:
+      - {id: o1, path: "Organ/A.wav"}
+      - {id: o2, path: "Organ/B.wav"}
+    intergroup_consecutive_weight_modifiers:
+      columns: [d1, d2]   # current Drums clip
+      rows:
+        o1: [1, 0]        # o1 only while Drums is on d1
+        o2: [0, 1]        # o2 only while Drums is on d2</pre>
         <p>
-          <code>part_duration</code> is when the next clip <em>starts</em>, not how long the wav is.
+          <code>clip_length</code> is when the next clip <em>starts</em>, not how long the wav is.
           <code>repeats</code> is how many starts of that same choice before a new clip is picked.
-          Tracks do not share a bar: a 15-second track can restart while a 20-second track is still on its first clip.
-          Mute is volume after a choice — other tracks still see the chosen part.
-          The exact algorithm (clocks, evaluation order, shared PRNG) is
-          <a href="../../SPECIFICATION.md">SPECIFICATION.md</a>.
-          Add more tracks as <code>secondary</code> or <code>standard</code> if they should follow
-          whatever drums (or other tracks) chose.
+          Tracks do not share a bar: a 12-second track can restart while an 8-second track is still on its first clip.
+          Track order matters — tracks evaluate top to bottom, so a later track sees earlier tracks' current clips.
+          Mute is volume after a choice — other tracks still see the chosen clip.
+          The exact algorithm (matrices, clocks, evaluation order, shared PRNG) is
+          <a href="../../v2_SPECIFICATION.md">v2_SPECIFICATION.md</a>, validated against
+          <a href="../../v2_schema.yaml">v2_schema.yaml</a>.
         </p>
       </div>
     </details>
@@ -353,7 +399,7 @@
         <ul>
           <li><code>title</code>, <code>artist</code>, <code>description</code></li>
           <li><code>tags</code> — semicolon-separated, e.g. <code>game music;synth</code></li>
-          <li><code>procsong_url</code> — zip of the procsong package</li>
+          <li><code>procsong_url</code> — zip of the procsong package (a version-2 package)</li>
           <li><code>image_url</code> — cover art</li>
         </ul>
         <pre>title,artist,description,tags,procsong_url,image_url
@@ -371,7 +417,7 @@
   <script>
     (function () {
       const DEFAULT_LIBRARY_URL =
-        'https://www.dropbox.com/scl/fi/8rs4otyk11pkhqr5ve12a/library.csv?rlkey=53mv4ycvyfsdi8vydoroc5xjw&st=zt5yy73b&dl=0';
+        'https://www.dropbox.com/scl/fi/8rs4otyk11pkhqr5ve12a/library.csv?rlkey=53mv4ycvyfsdi8vydoroc5xjw&st=q2a1fqwj&dl=0';
 
       const urlInput = document.getElementById('libraryUrl');
       const params = new URLSearchParams(window.location.search);
@@ -386,11 +432,8 @@
         history.replaceState(null, '', next);
       }
 
-      writeLibraryUrl(initialLibrary);
-
       const player = new ProcsongPlayer({
         target: 'player',
-        showDebug: true,
       });
       player.initialise();
 
@@ -399,7 +442,11 @@
         player: 'player',
         library: initialLibrary,
       });
-      library.initialise().catch(function () { /* status is shown in the library */ });
+
+      if (initialLibrary) {
+        writeLibraryUrl(initialLibrary);
+        library.initialise().catch(function () { /* status is shown in the library */ });
+      }
 
       function loadFromInput() {
         const url = urlInput.value.trim();
