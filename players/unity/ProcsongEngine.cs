@@ -23,7 +23,7 @@ namespace Procsong
 
         public double NextFloat()
         {
-            // Spec §6: state = (state * A + C) mod 2^64; next_float = (state >> 32) / 4294967296.0
+            // Spec §14: state = (state * A + C) mod 2^64; next_float = (state >> 32) / 4294967296.0
             _state = unchecked(_state * A + C);
             return (double)(uint)(_state >> 32) / 4294967296.0;
         }
@@ -38,30 +38,36 @@ namespace Procsong
         }
     }
 
-    public sealed class ProcsongPart
+    public sealed class ProcsongClip
     {
+        public string Id;
         public string Path;
         public double Weight = 1;
-        /// <summary>Null means omitted (no restriction). Empty means match nothing.</summary>
-        public List<string> AllowedPrimaryParts;
-        public List<string> AllowedSecondaryParts;
+    }
+
+    public sealed class ProcsongMatrix
+    {
+        public List<string> Columns = new List<string>();
+        public Dictionary<string, double[]> Rows = new Dictionary<string, double[]>();
     }
 
     public sealed class ProcsongTrack
     {
         public string Name;
         public int DeclIndex;
-        public string Type;
-        public double ProbabilitySilence;
+        public double SilenceProbability;
         public int LoopSeconds;
         public int Repeats;
-        public List<ProcsongPart> Parts = new List<ProcsongPart>();
+        public List<ProcsongClip> Clips = new List<ProcsongClip>();
+        public ProcsongMatrix Intra;
+        public ProcsongMatrix Inter;
     }
 
     public sealed class ProcsongPulse
     {
         public int Tick;
         public ProcsongTrack Track;
+        public string ChosenId;
         public string Chosen;
         public bool Muted;
         public bool Evaluated;
@@ -70,25 +76,24 @@ namespace Procsong
     }
 
     /// <summary>
-    /// Deterministic scheduler. Same package + seed as the web player yields the same
-    /// chosen parts, mute flags, and start times.
+    /// Deterministic v2 scheduler. Same package + seed as the web player yields the same
+    /// chosen clips, mute flags, and start times.
     /// </summary>
     public sealed class ProcsongEngine
     {
-        static readonly Dictionary<string, int> Phase = new Dictionary<string, int>
-        {
-            { "primary", 0 },
-            { "secondary", 1 },
-            { "standard", 2 },
-        };
+        const string FormatVersion = "2.0.0";
 
         public sealed class Slot
         {
             public ProcsongTrack Track;
+            public string ChosenId;
             public string Chosen;
             public bool Muted = true;
             public int NextLoop;
             public int Remaining;
+            public Dictionary<string, int> IntraColIndex;
+            public Dictionary<string, int> InterColIndex;
+            public List<Slot> InterRepresented = new List<Slot>();
         }
 
         readonly ProcsongRng _rng;
@@ -99,17 +104,44 @@ namespace Procsong
         public ProcsongEngine(IList<ProcsongTrack> tracks, ulong seed)
         {
             _rng = new ProcsongRng(seed);
+            var clipOwnerIndex = new Dictionary<string, int>();
+            for (int t = 0; t < tracks.Count; t++)
+            {
+                var clips = tracks[t].Clips;
+                for (int c = 0; c < clips.Count; c++)
+                    clipOwnerIndex[clips[c].Id] = tracks[t].DeclIndex;
+            }
+
             _state = new List<Slot>(tracks.Count);
             for (int i = 0; i < tracks.Count; i++)
             {
+                var track = tracks[i];
                 _state.Add(new Slot
                 {
-                    Track = tracks[i],
+                    Track = track,
+                    ChosenId = null,
                     Chosen = null,
                     Muted = true,
                     NextLoop = 0,
                     Remaining = 0,
+                    IntraColIndex = IndexColumns(track.Intra),
+                    InterColIndex = IndexColumns(track.Inter),
                 });
+            }
+
+            for (int i = 0; i < _state.Count; i++)
+            {
+                var slot = _state[i];
+                var inter = slot.Track.Inter;
+                if (inter == null) continue;
+                var seen = new HashSet<int>();
+                for (int c = 0; c < inter.Columns.Count; c++)
+                {
+                    int ownerIndex;
+                    if (!clipOwnerIndex.TryGetValue(inter.Columns[c], out ownerIndex)) continue;
+                    if (!seen.Add(ownerIndex)) continue;
+                    slot.InterRepresented.Add(_state[ownerIndex]);
+                }
             }
         }
 
@@ -157,19 +189,16 @@ namespace Procsong
             var pulse = new ProcsongPulse();
             if (slot.Remaining <= 0)
             {
-                SelectPart(slot.Track, pulse);
+                Evaluate(slot, pulse);
+                slot.ChosenId = pulse.ChosenId;
                 slot.Chosen = pulse.Chosen;
                 slot.Muted = pulse.Muted;
                 slot.Remaining = slot.Track.Repeats;
                 pulse.Evaluated = true;
             }
-            else
-            {
-                pulse.Chosen = slot.Chosen;
-                pulse.Muted = slot.Muted;
-            }
             pulse.Tick = tick;
             pulse.Track = slot.Track;
+            pulse.ChosenId = slot.ChosenId;
             pulse.Chosen = slot.Chosen;
             pulse.Muted = slot.Muted;
             slot.Remaining -= 1;
@@ -177,76 +206,67 @@ namespace Procsong
             return pulse;
         }
 
-        void SelectPart(ProcsongTrack track, ProcsongPulse pulse)
+        // Spec §10.1 — previous selection in this group weights this group's next candidates.
+        static double GetIntraModifier(Slot slot, ProcsongClip clip)
+        {
+            if (slot.ChosenId == null) return 1;
+            var intra = slot.Track.Intra;
+            if (intra == null) return 1;
+            int col = slot.IntraColIndex[clip.Id];
+            return intra.Rows[slot.ChosenId][col];
+        }
+
+        // Spec §10.2 — other groups' current selections weight this group's current candidates.
+        static double GetInterModifier(Slot slot, ProcsongClip clip)
+        {
+            var inter = slot.Track.Inter;
+            if (inter == null) return 1;
+            double[] row = inter.Rows[clip.Id];
+            double result = 1;
+            for (int i = 0; i < slot.InterRepresented.Count; i++)
+            {
+                var upstream = slot.InterRepresented[i];
+                if (upstream.ChosenId == null) continue;
+                int col = slot.InterColIndex[upstream.ChosenId];
+                result *= row[col];
+            }
+            return result;
+        }
+
+        // Spec §9, §11 — exactly two draws; walk clips in declaration order.
+        void Evaluate(Slot slot, ProcsongPulse pulse)
         {
             pulse.RPart = _rng.NextFloat();
             pulse.RSilence = _rng.NextFloat();
-            var candidates = CandidatesFor(track);
-            pulse.Chosen = candidates.Count > 0 ? WeightedSelect(candidates, pulse.RPart).Path : null;
-            pulse.Muted = pulse.Chosen == null || pulse.RSilence < track.ProbabilitySilence;
-        }
 
-        List<string> ChosenOfType(string type)
-        {
-            var names = new List<string>();
-            for (int i = 0; i < _state.Count; i++)
-            {
-                var slot = _state[i];
-                if (slot.Track.Type == type && slot.Chosen != null)
-                    names.Add(slot.Chosen);
-            }
-            return names;
-        }
-
-        List<ProcsongPart> CandidatesFor(ProcsongTrack track)
-        {
-            if (track.Type == "primary") return track.Parts;
-            var primary = ChosenOfType("primary");
-            var secondary = ChosenOfType("secondary");
-            var list = new List<ProcsongPart>();
-            for (int i = 0; i < track.Parts.Count; i++)
-            {
-                var part = track.Parts[i];
-                if (track.Type == "secondary")
-                {
-                    if (Allows(part.AllowedPrimaryParts, primary)) list.Add(part);
-                }
-                else if (Allows(part.AllowedPrimaryParts, primary) && Allows(part.AllowedSecondaryParts, secondary))
-                {
-                    list.Add(part);
-                }
-            }
-            return list;
-        }
-
-        static bool Allows(List<string> allowed, List<string> active)
-        {
-            if (allowed == null) return true;
-            for (int i = 0; i < allowed.Count; i++)
-            {
-                if (active.Contains(allowed[i])) return true;
-            }
-            return false;
-        }
-
-        static ProcsongPart WeightedSelect(List<ProcsongPart> candidates, double rPart)
-        {
+            var clips = slot.Track.Clips;
+            var weights = new double[clips.Count];
             double total = 0;
-            for (int i = 0; i < candidates.Count; i++) total += candidates[i].Weight;
-            double target = rPart * total;
-            double cumulative = 0;
-            for (int i = 0; i < candidates.Count; i++)
+            for (int i = 0; i < clips.Count; i++)
             {
-                cumulative += candidates[i].Weight;
-                if (cumulative > target) return candidates[i];
+                var clip = clips[i];
+                double w = clip.Weight * GetIntraModifier(slot, clip) * GetInterModifier(slot, clip);
+                weights[i] = w;
+                total += w;
             }
-            return candidates[candidates.Count - 1];
-        }
 
-        public static int PhaseOf(string type)
-        {
-            int phase;
-            return Phase.TryGetValue(type ?? "", out phase) ? phase : 9;
+            if (total > 0)
+            {
+                double target = pulse.RPart * total;
+                double running = 0;
+                for (int i = 0; i < clips.Count; i++)
+                {
+                    running += weights[i];
+                    if (running > target)
+                    {
+                        pulse.ChosenId = clips[i].Id;
+                        pulse.Chosen = clips[i].Path;
+                        break;
+                    }
+                }
+            }
+
+            pulse.Muted = pulse.Chosen == null || pulse.RSilence < slot.Track.SilenceProbability;
         }
 
         public static int AtLeastOne(double n)
@@ -258,103 +278,304 @@ namespace Procsong
 
         public static List<ProcsongTrack> ParseDefinition(string yamlText)
         {
-            if (yamlText == null) throw new ArgumentException("definition.yml did not contain a track map");
+            if (yamlText == null) throw new ArgumentException("definition.yml did not contain a mapping");
             object raw = MiniYaml.Parse(yamlText);
             var root = raw as YMap;
-            if (root == null) throw new ArgumentException("definition.yml did not contain a track map");
+            if (root == null) throw new ArgumentException("definition.yml did not contain a mapping");
 
-            var tracks = new List<ProcsongTrack>();
-            for (int i = 0; i < root.Count; i++)
+            string version = AsString(root.Get("format_version"));
+            if (version != FormatVersion)
             {
-                var spec = root.Values[i] as YMap;
-                if (spec == null) continue;
-                var track = new ProcsongTrack
-                {
-                    Name = root.Keys[i],
-                    DeclIndex = tracks.Count,
-                    Type = AsString(spec.Get("type")),
-                    ProbabilitySilence = AsNumber(spec.Get("probability_silence"), 0),
-                    LoopSeconds = AtLeastOne(AsNumber(spec.Get("part_duration"), double.NaN)),
-                    Repeats = AtLeastOne(AsNumber(spec.Get("repeats"), double.NaN)),
-                    Parts = new List<ProcsongPart>(),
-                };
-                var parts = spec.Get("parts") as List<object>;
-                if (parts != null)
-                {
-                    for (int p = 0; p < parts.Count; p++)
-                    {
-                        var part = ParsePart(parts[p]);
-                        if (part != null && !string.IsNullOrEmpty(part.Path))
-                            track.Parts.Add(part);
-                    }
-                }
-                tracks.Add(track);
+                throw new ArgumentException(
+                    "Unsupported format_version \"" + (version ?? "") + "\" (expected " + FormatVersion + "). " +
+                    "Legacy track-map definitions are not supported.");
             }
-            if (tracks.Count == 0) throw new ArgumentException("No tracks found in definition.yml");
-            tracks.Sort(delegate (ProcsongTrack a, ProcsongTrack b)
-            {
-                int phase = PhaseOf(a.Type) - PhaseOf(b.Type);
-                return phase != 0 ? phase : a.DeclIndex - b.DeclIndex;
-            });
+
+            var trackList = root.Get("tracks") as List<object>;
+            if (trackList == null || trackList.Count == 0)
+                throw new ArgumentException("definition.yml must contain a non-empty tracks array");
+
+            var tracks = new List<ProcsongTrack>(trackList.Count);
+            for (int i = 0; i < trackList.Count; i++)
+                tracks.Add(ParseTrack(trackList[i], i));
+            ValidateDefinition(tracks);
             return tracks;
         }
 
-        static readonly HashSet<string> PartMeta = new HashSet<string>
+        static ProcsongTrack ParseTrack(object raw, int index)
         {
-            "weight", "allowed_primary_parts", "allowed_secondary_parts", "path"
-        };
+            string where = "Track #" + (index + 1);
+            var spec = raw as YMap;
+            if (spec == null) throw new ArgumentException(where + " must be a mapping");
 
-        static ProcsongPart ParsePart(object entry)
-        {
-            if (entry is string)
+            string name = AsString(spec.Get("name"));
+            if (string.IsNullOrEmpty(name)) throw new ArgumentException(where + " is missing a string name");
+            if (name.IndexOf('/') >= 0) throw new ArgumentException("Track \"" + name + "\" name must not contain \"/\"");
+
+            if (spec.Get("clip_length") == null)
+                throw new ArgumentException("Track \"" + name + "\" is missing clip_length");
+            double clipLength = AsNumber(spec.Get("clip_length"), double.NaN);
+            if (double.IsNaN(clipLength) || clipLength < 0)
+                throw new ArgumentException("Track \"" + name + "\" clip_length must be a non-negative number");
+
+            int repeats = RequireIntegerAtLeast(spec.Get("repeats"), "Track \"" + name + "\" repeats");
+
+            double silence = 0;
+            if (spec.Get("silence_probability") != null)
             {
-                return new ProcsongPart { Path = (string)entry, Weight = 1 };
+                silence = AsNumber(spec.Get("silence_probability"), double.NaN);
+                if (double.IsNaN(silence) || silence < 0 || silence > 1)
+                    throw new ArgumentException("Track \"" + name + "\" silence_probability must be between 0 and 1");
             }
-            var map = entry as YMap;
-            if (map == null) throw new ArgumentException("Invalid part entry");
 
-            string path = map.Get("path") as string;
-            YMap nested = null;
-            for (int i = 0; i < map.Count; i++)
+            var clipList = spec.Get("clips") as List<object>;
+            if (clipList == null || clipList.Count == 0)
+                throw new ArgumentException("Track \"" + name + "\" must define a non-empty clips array");
+
+            var clips = new List<ProcsongClip>(clipList.Count);
+            for (int i = 0; i < clipList.Count; i++)
+                clips.Add(ParseClip(clipList[i], name, i));
+
+            return new ProcsongTrack
             {
-                if (PartMeta.Contains(map.Keys[i])) continue;
-                path = map.Keys[i];
-                nested = map.Values[i] as YMap;
-                break;
-            }
-
-            double weight = 1;
-            object w = nested != null ? nested.Get("weight") : null;
-            if (w == null) w = map.Get("weight");
-            if (w != null) weight = AsNumber(w, 1);
-
-            return new ProcsongPart
-            {
-                Path = path,
-                Weight = weight,
-                AllowedPrimaryParts = StringList(nested != null ? nested.Get("allowed_primary_parts") : null)
-                    ?? StringList(map.Get("allowed_primary_parts")),
-                AllowedSecondaryParts = StringList(nested != null ? nested.Get("allowed_secondary_parts") : null)
-                    ?? StringList(map.Get("allowed_secondary_parts")),
+                Name = name,
+                DeclIndex = index,
+                LoopSeconds = AtLeastOne(clipLength),
+                Repeats = repeats,
+                SilenceProbability = silence,
+                Clips = clips,
+                Intra = ParseMatrix(spec.Get("intragroup_subsequent_weight_modifiers"), name, "intragroup_subsequent_weight_modifiers"),
+                Inter = ParseMatrix(spec.Get("intergroup_consecutive_weight_modifiers"), name, "intergroup_consecutive_weight_modifiers"),
             };
         }
 
-        static List<string> StringList(object node)
+        static ProcsongClip ParseClip(object entry, string trackName, int index)
         {
-            if (node == null) return null;
-            var list = node as List<object>;
-            if (list == null) return new List<string>();
-            var names = new List<string>(list.Count);
-            for (int i = 0; i < list.Count; i++)
+            string where = "Track \"" + trackName + "\" clip #" + (index + 1);
+            if (entry is string)
             {
-                if (list[i] != null) names.Add(Convert.ToString(list[i], CultureInfo.InvariantCulture));
+                throw new ArgumentException(where + " must be a mapping with id and path (legacy path-only parts are not supported)");
             }
-            return names;
+            var map = entry as YMap;
+            if (map == null) throw new ArgumentException(where + " must be a mapping with id and path");
+
+            string id = RequireId(map.Get("id"), where + " is missing a string id");
+            string path = AsString(map.Get("path"));
+            if (string.IsNullOrEmpty(path)) throw new ArgumentException(where + " (" + id + ") is missing a string path");
+
+            return new ProcsongClip
+            {
+                Id = id,
+                Path = path,
+                Weight = ParseWeight(map.Get("weight"), where + " (" + id + ") weight"),
+            };
+        }
+
+        static ProcsongMatrix ParseMatrix(object raw, string trackName, string kind)
+        {
+            if (raw == null) return null;
+            string where = "Track \"" + trackName + "\" " + kind;
+            var map = raw as YMap;
+            if (map == null) throw new ArgumentException(where + " must be a mapping with columns and rows");
+
+            var colNode = map.Get("columns") as List<object>;
+            if (colNode == null) throw new ArgumentException(where + " is missing a columns array");
+            var rowNode = map.Get("rows") as YMap;
+            if (rowNode == null) throw new ArgumentException(where + " is missing a rows mapping");
+
+            var columns = new List<string>(colNode.Count);
+            var seen = new HashSet<string>();
+            for (int i = 0; i < colNode.Count; i++)
+            {
+                string id = RequireId(colNode[i], where + " column #" + (i + 1) + " must be a clip id string");
+                if (!seen.Add(id)) throw new ArgumentException(where + " columns must be unique clip ids");
+                columns.Add(id);
+            }
+
+            var rows = new Dictionary<string, double[]>();
+            for (int r = 0; r < rowNode.Count; r++)
+            {
+                string rowKey = rowNode.Keys[r];
+                var values = rowNode.Values[r] as List<object>;
+                if (values == null) throw new ArgumentException(where + " row \"" + rowKey + "\" must be an array");
+                var cells = new double[values.Count];
+                for (int i = 0; i < values.Count; i++)
+                    cells[i] = ParseWeight(values[i], where + " row \"" + rowKey + "\" cell #" + (i + 1));
+                rows[rowKey] = cells;
+            }
+
+            return new ProcsongMatrix { Columns = columns, Rows = rows };
+        }
+
+        static void ValidateDefinition(List<ProcsongTrack> tracks)
+        {
+            var trackNames = new HashSet<string>();
+            for (int i = 0; i < tracks.Count; i++)
+            {
+                if (!trackNames.Add(tracks[i].Name))
+                    throw new ArgumentException("Track names must be unique");
+            }
+
+            var clipOwner = new Dictionary<string, ProcsongTrack>();
+            for (int t = 0; t < tracks.Count; t++)
+            {
+                var clips = tracks[t].Clips;
+                for (int c = 0; c < clips.Count; c++)
+                {
+                    if (clipOwner.ContainsKey(clips[c].Id))
+                    {
+                        throw new ArgumentException(
+                            "Clip id \"" + clips[c].Id + "\" is used more than once (must be unique across the whole definition)");
+                    }
+                    clipOwner[clips[c].Id] = tracks[t];
+                }
+            }
+
+            for (int t = 0; t < tracks.Count; t++)
+            {
+                var track = tracks[t];
+                var clipIds = ClipIds(track);
+
+                if (track.Intra != null)
+                {
+                    var m = track.Intra;
+                    if (!ArraysEqual(m.Columns, clipIds))
+                        throw new ArgumentException("Track \"" + track.Name + "\" intra columns must equal its clip ids in declaration order");
+                    if (!SameSet(new List<string>(m.Rows.Keys), clipIds))
+                        throw new ArgumentException("Track \"" + track.Name + "\" intra rows must contain exactly one row for each clip id");
+                    foreach (var pair in m.Rows)
+                    {
+                        if (pair.Value.Length != m.Columns.Count)
+                        {
+                            throw new ArgumentException(
+                                "Track \"" + track.Name + "\" intra row \"" + pair.Key + "\" length must equal column count (" + m.Columns.Count + ")");
+                        }
+                    }
+                }
+
+                if (track.Inter != null)
+                {
+                    var m = track.Inter;
+                    if (!SameSet(new List<string>(m.Rows.Keys), clipIds))
+                        throw new ArgumentException("Track \"" + track.Name + "\" inter rows must contain exactly one row for each clip id");
+                    foreach (var pair in m.Rows)
+                    {
+                        if (pair.Value.Length != m.Columns.Count)
+                        {
+                            throw new ArgumentException(
+                                "Track \"" + track.Name + "\" inter row \"" + pair.Key + "\" length must equal column count (" + m.Columns.Count + ")");
+                        }
+                    }
+
+                    var repOrder = new List<ProcsongTrack>();
+                    var seenTracks = new HashSet<int>();
+                    for (int c = 0; c < m.Columns.Count; c++)
+                    {
+                        string col = m.Columns[c];
+                        ProcsongTrack owner;
+                        if (!clipOwner.TryGetValue(col, out owner))
+                            throw new ArgumentException("Track \"" + track.Name + "\" inter column \"" + col + "\" is not a known clip id");
+                        if (owner.DeclIndex >= track.DeclIndex)
+                            throw new ArgumentException("Track \"" + track.Name + "\" inter column \"" + col + "\" references clip on the same or a later track");
+                        if (seenTracks.Add(owner.DeclIndex))
+                            repOrder.Add(owner);
+                    }
+
+                    for (int i = 1; i < repOrder.Count; i++)
+                    {
+                        if (repOrder[i].DeclIndex <= repOrder[i - 1].DeclIndex)
+                            throw new ArgumentException("Track \"" + track.Name + "\" inter columns must list upstream tracks in declaration order");
+                    }
+
+                    for (int u = 0; u < repOrder.Count; u++)
+                    {
+                        var upstream = repOrder[u];
+                        var upstreamIds = ClipIds(upstream);
+                        var colsForUpstream = new List<string>();
+                        for (int c = 0; c < m.Columns.Count; c++)
+                        {
+                            ProcsongTrack owner;
+                            if (clipOwner.TryGetValue(m.Columns[c], out owner) && owner == upstream)
+                                colsForUpstream.Add(m.Columns[c]);
+                        }
+                        if (!ArraysEqual(colsForUpstream, upstreamIds))
+                        {
+                            throw new ArgumentException(
+                                "Track \"" + track.Name + "\" inter columns for upstream track \"" + upstream.Name +
+                                "\" must be all of its clip ids in declaration order");
+                        }
+                    }
+                }
+            }
+        }
+
+        static List<string> ClipIds(ProcsongTrack track)
+        {
+            var ids = new List<string>(track.Clips.Count);
+            for (int i = 0; i < track.Clips.Count; i++) ids.Add(track.Clips[i].Id);
+            return ids;
+        }
+
+        static Dictionary<string, int> IndexColumns(ProcsongMatrix matrix)
+        {
+            if (matrix == null) return null;
+            var map = new Dictionary<string, int>(matrix.Columns.Count);
+            for (int i = 0; i < matrix.Columns.Count; i++)
+                map[matrix.Columns[i]] = i;
+            return map;
+        }
+
+        static bool ArraysEqual(IList<string> a, IList<string> b)
+        {
+            if (a.Count != b.Count) return false;
+            for (int i = 0; i < a.Count; i++)
+            {
+                if (a[i] != b[i]) return false;
+            }
+            return true;
+        }
+
+        static bool SameSet(IList<string> a, IList<string> b)
+        {
+            if (a.Count != b.Count) return false;
+            var set = new HashSet<string>(a);
+            for (int i = 0; i < b.Count; i++)
+            {
+                if (!set.Contains(b[i])) return false;
+            }
+            return true;
+        }
+
+        static string RequireId(object node, string message)
+        {
+            if (node == null || node is bool)
+                throw new ArgumentException(message);
+            string id = Convert.ToString(node, CultureInfo.InvariantCulture);
+            if (string.IsNullOrEmpty(id)) throw new ArgumentException(message);
+            return id;
+        }
+
+        static int RequireIntegerAtLeast(object node, string context)
+        {
+            double n = AsNumber(node, double.NaN);
+            if (double.IsNaN(n) || n < 1 || n != Math.Floor(n))
+                throw new ArgumentException(context + " must be an integer >= 1");
+            return (int)n;
+        }
+
+        static double ParseWeight(object node, string context)
+        {
+            if (node == null) return 1;
+            double n = AsNumber(node, double.NaN);
+            if (double.IsNaN(n) || n < 0)
+                throw new ArgumentException(context + " must be a non-negative number");
+            return n;
         }
 
         static string AsString(object node)
         {
-            return node == null ? null : Convert.ToString(node, CultureInfo.InvariantCulture);
+            if (node == null || node is bool) return null;
+            return Convert.ToString(node, CultureInfo.InvariantCulture);
         }
 
         static double AsNumber(object node, double fallback)
@@ -542,7 +763,9 @@ namespace Procsong
                         else
                         {
                             string key, val;
-                            if (TrySplitEntry(rest, out key, out val))
+                            if (rest[0] == '{' || rest[0] == '[')
+                                list.Add(ParseInline(rest));
+                            else if (TrySplitEntry(rest, out key, out val))
                                 list.Add(ParseMap(indent + 2, rest));
                             else
                                 list.Add(ParseInline(rest));

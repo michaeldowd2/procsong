@@ -235,9 +235,9 @@ namespace Procsong
             var needed = new HashSet<string>();
             for (int t = 0; t < _tracks.Count; t++)
             {
-                var parts = _tracks[t].Parts;
-                for (int p = 0; p < parts.Count; p++)
-                    needed.Add(ClipKey(parts[p].Path));
+                var clips = _tracks[t].Clips;
+                for (int p = 0; p < clips.Count; p++)
+                    needed.Add(ClipKey(clips[p].Path));
             }
 
             int decoded = 0;
