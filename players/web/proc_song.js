@@ -370,7 +370,7 @@
   align-items: center;
   gap: 8px;
   flex: 1 1 0;
-  min-width: 40px;
+  min-width: 48px;
 }
 .ps-player .ps-viz-clips {
   display: flex;
@@ -379,11 +379,26 @@
   align-items: center;
 }
 .ps-player .ps-viz-clip {
-  width: 20px;
-  height: 11px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 28px;
+  max-width: 100%;
+  padding: 2px 6px;
   border-radius: 3px;
   background: var(--ps-clip);
+  color: var(--ps-btn-text);
   opacity: 0.5;
+  font-family: var(--ps-mono);
+  font-size: 10px;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+  line-height: 1.2;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  user-select: none;
   transition: background 0.15s ease, opacity 0.15s ease;
 }
 .ps-player .ps-viz-clip.is-current {
@@ -413,7 +428,7 @@
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--ps-clip-on) 55%, transparent);
   }
   50% {
-    transform: scale(1.18);
+    transform: scale(1.06);
     box-shadow: 0 0 9px 2px color-mix(in srgb, var(--ps-clip-on) 45%, transparent);
   }
 }
@@ -427,7 +442,7 @@
   }
   .ps-player .ps-volume { margin-top: 8px; }
   .ps-player .ps-viz { gap: 6px; }
-  .ps-player .ps-viz-clip { width: 16px; }
+  .ps-player .ps-viz-clip { font-size: 9px; padding: 2px 5px; min-width: 24px; }
   .ps-player .ps-viz-name { font-size: 9px; max-width: 60px; }
 }
 `;
@@ -1510,6 +1525,7 @@
         const boxes = track.clips.map((clip) => {
           const box = document.createElement('span');
           box.className = 'ps-viz-clip';
+          box.textContent = clip.id;
           box.title = clip.id;
           clipsWrap.appendChild(box);
           return box;

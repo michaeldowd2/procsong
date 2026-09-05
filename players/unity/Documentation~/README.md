@@ -18,11 +18,11 @@ Only this folder is the Unity package. `.meta` files live here next to the scrip
 
 ## Sequencing
 
-This player **MUST** follow [`SPECIFICATION.md`](../../../SPECIFICATION.md). Do not invent a second set of rules.
+This player **MUST** follow [`SPECIFICATION.md`](../../../SPECIFICATION.md) (`format_version: 2.0.0`). Do not invent a second set of rules. Legacy v1 packages (track-map YAML with `type` / `parts` / allow-lists) are not supported.
 
-Same zip + same seed as the web player → same chosen parts, mute flags, and integer start times. Unity’s mixer may still sound slightly different from the browser.
+Same zip + same seed as the web player → same chosen clips, mute flags, and integer start times. Unity’s mixer may still sound slightly different from the browser.
 
-In one sentence: each track starts clips on its own interval; it reuses a choice for `repeats` starts; evaluations use one shared PRNG in primary → secondary → standard order; mute does not clear the chosen part.
+In one sentence: each track starts clips on its own interval; it reuses a choice for `repeats` starts; evaluations use one shared PRNG in YAML track declaration order; mute does not clear the chosen clip.
 
 Turn on **Log Schedule** to print the first evaluations (compare with the spec golden test: seed `12345`).
 
