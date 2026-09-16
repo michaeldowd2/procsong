@@ -378,6 +378,7 @@ tracks:
         <p>
           <code>clip_length</code> is when the next clip <em>starts</em>, not how long the wav is.
           <code>repeats</code> is how many starts of that same choice before a new clip is picked.
+          It may be fractional: <code>repeats: 2.4</code> on a 10-second track plays two full starts, then 4 seconds of a third, so tracks of different lengths can end a cycle on the same second.
           Tracks do not share a bar: a 12-second track can restart while an 8-second track is still on its first clip.
           Track order matters — tracks evaluate top to bottom, so a later track sees earlier tracks' current clips.
           Mute is volume after a choice — other tracks still see the chosen clip.

@@ -12,7 +12,7 @@ Full rules: [`SPECIFICATION.md`](SPECIFICATION.md). Short version:
 
 1. **Time is integer seconds** starting at `t = 0`. There is no global tempo grid.
 2. Each track starts a clip every `part_duration` seconds (rounded to an integer ≥ 1). The wav is usually *longer* than that interval, so tails overlap. The interval is when the *next* clip may start, not how long the file is.
-3. A track does **not** pick a new clip on every start. It keeps the same choice for `repeats` starts, then **evaluates** again (new clip and mute flag).
+3. A track does **not** pick a new clip on every start. It keeps the same choice for `repeats` starts, then **evaluates** again (new clip and mute flag). `repeats` may be fractional: `2.4` on a 10-second track is two full starts plus 4 seconds of a third, so tracks of different lengths can be authored to finish a cycle together.
 4. At any given second, due tracks run in a fixed order: all **primary**, then **secondary**, then **standard** (and YAML order within each type). Later tracks in that same second see the new choices of earlier tracks.
 5. Evaluation uses **one** shared PRNG for the whole song (not one per track). Each evaluation draws two numbers: pick a part, then maybe mute. Retriggers do not draw.
 6. **Mute is volume, not “no part.”** A muted track still has a chosen part. Other tracks that filter on drums/organ still see that choice.

@@ -120,8 +120,13 @@ definitions:
           Start-to-start interval in seconds; converted to an integer >= 1 by
           AtLeastOne. This is not the audio-file duration.
       repeats:
-        type: integer
-        minimum: 1
+        type: number
+        exclusiveMinimum: 0
+        description: >-
+          How many times one evaluated choice is started before this track
+          reevaluates. Need not be an integer: floor(repeats) full starts are
+          followed by one partial start of length (repeats - floor(repeats)) ×
+          LoopSeconds when the fractional part is greater than 0.
       silence_probability:
         type: number
         minimum: 0

@@ -176,18 +176,21 @@ namespace Procsong
                 AudioClip clip;
                 if (_clips == null || !_clips.TryGetValue(ClipKey(result.Chosen), out clip) || clip == null)
                     continue;
-                StartFullClip(clip, when);
+                StartClip(clip, when, result.CropAudio, result.PlaySeconds);
             }
         }
 
-        void StartFullClip(AudioClip clip, double when)
+        void StartClip(AudioClip clip, double when, bool crop, int playSeconds)
         {
-            AudioSource source = AcquireVoice(when, clip.length);
+            float duration = crop ? Mathf.Min(playSeconds, clip.length) : clip.length;
+            AudioSource source = AcquireVoice(when, duration);
             source.Stop();
             source.clip = clip;
             source.volume = volume;
             source.spatialBlend = spatialBlend;
             source.PlayScheduled(when);
+            if (crop)
+                source.SetScheduledEndTime(when + duration);
         }
 
         AudioSource AcquireVoice(double when, float duration)
