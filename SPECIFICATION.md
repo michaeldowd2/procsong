@@ -158,13 +158,15 @@ Each item in `tracks` is both an audio track and one clip group:
     - {id: clp_2, path: "trk_1/clp_2.wav", weight: 1}
 ```
 
+`repeats` may be fractional. `repeats: 2.4` with `clip_length: 10` keeps one choice for two full 10-second starts plus a 4-second partial start.
+
 Fields:
 
 | Field | Required | Meaning |
 | :--- | :---: | :--- |
 | `name` | yes | Unique track/group name. |
 | `clip_length` | yes | Start-to-start interval in seconds; not the WAV duration. |
-| `repeats` | yes | Number of starts retaining one evaluated choice before this track reevaluates. |
+| `repeats` | yes | How many times one evaluated choice is started before this track reevaluates. **MUST** be a finite number `> 0`. Need not be an integer: the last start of a non-integer cycle is a partial start (see §12). |
 | `silence_probability` | no | Probability that the evaluated choice is silent. Default `0`. |
 | `clips` | yes | Candidate clips in deterministic declaration order. |
 | `intragroup_subsequent_weight_modifiers` | no | Same-group previous-to-next matrix. |
@@ -529,7 +531,17 @@ Per track state:
 | `ChosenClip` | none | Current path/string |
 | `Muted` | true | Current mute state |
 | `NextStart` | 0 | Next due integer second |
-| `Remaining` | 0 | Starts left in current evaluated cycle |
+| `RemainingFull` | 0 | Full starts still owed in the current evaluated cycle |
+| `TailPending` | false | Whether the cycle still owes its fractional last start |
+
+Split `repeats` once, when the track is parsed:
+
+```text
+FullRepeats  = floor(repeats)
+TailFraction = repeats - FullRepeats
+```
+
+`TailFraction` is `0` when `repeats` is an integer. It is otherwise in `(0, 1)`.
 
 Master scheduler:
 
@@ -546,23 +558,38 @@ Pulse:
 
 ```text
 Pulse(T, t):
-  if T.Remaining <= 0:
+  if T.RemainingFull <= 0 and T.TailPending is false:
     Evaluate(T)
-    T.Remaining = T.repeats
+    T.RemainingFull = T.FullRepeats
+    T.TailPending   = (T.TailFraction > 0)
 
-  T.Remaining -= 1
-  T.NextStart = t + T.LoopSeconds
+  if T.RemainingFull > 0:
+    T.PlaySeconds = T.LoopSeconds
+    T.CropAudio   = false
+    T.RemainingFull -= 1
+  else:
+    T.PlaySeconds = AtLeastOne(T.TailFraction * T.LoopSeconds)
+    T.CropAudio   = true
+    T.TailPending = false
+
+  T.NextStart = t + T.PlaySeconds
 
   emit:
     t
     T.name
     T.ChosenClip
     T.Muted
+    T.PlaySeconds
+    T.CropAudio
 ```
 
-`repeats` therefore counts starts, including the start on the evaluation pulse. Retriggers do not consume PRNG draws.
+`repeats` therefore counts starts, including the start on the evaluation pulse. A non-integer value means the cycle is `FullRepeats` full starts plus one partial start. Retriggers and the fractional last start do not consume PRNG draws.
 
-Example: `clip_length = 15`, `repeats = 4` produces starts at `0,15,30,45,60...` and evaluations at `0,60,120...`.
+A full start uses `PlaySeconds = LoopSeconds` and does not crop audio. A partial start uses `PlaySeconds = AtLeastOne(TailFraction × LoopSeconds)` and crops audio to that duration so tracks with different `clip_length` values can be authored to finish a cycle together.
+
+Example: `clip_length = 15`, `repeats = 4` produces starts at `0,15,30,45,60...` and evaluations at `0,60,120...`. Every start is full (`PlaySeconds = 15`, `CropAudio = false`).
+
+Example: `clip_length = 10`, `repeats = 2.4` produces starts at `0,10,20,24...` and evaluations at `0,24,48...`. Starts at `0` and `10` are full (`PlaySeconds = 10`, `CropAudio = false`). The start at `20` is partial (`PlaySeconds = 4`, `CropAudio = true`): 4 seconds of the chosen file, then the next evaluation at `24`. A 12-second track with `repeats = 2` evaluates on that same 24-second cycle.
 
 ---
 
@@ -613,7 +640,9 @@ Only evaluations consume draws, exactly two per evaluation, in scheduler order.
 
 A start event sounds only when `ChosenClip` is set and `Muted` is false.
 
-Players **MUST** start the entire referenced audio file at the scheduled time, allow tails to overlap subsequent starts, and **MUST NOT** crop a clip to `LoopSeconds`.
+On a full start (`CropAudio` is false), players **MUST** start the entire referenced audio file at the scheduled time, allow tails to overlap subsequent starts, and **MUST NOT** crop a clip to `LoopSeconds`.
+
+On a partial start (`CropAudio` is true), players **MUST** start the referenced audio file at the scheduled time and **MUST** stop it after `PlaySeconds` (or at the file's natural end if shorter). That stop is the only case in which a start is cropped.
 
 Audio resampling, mixing, and short click-prevention fades may differ between players, but schedule fields may not.
 
@@ -756,6 +785,7 @@ A version 2 implementation is compliant if it:
 8. multiplies base, intra, and current inter-group factors;
 9. uses one shared LCG with exactly two draws per evaluation;
 10. leaves muted selections visible as current selections to downstream groups;
-11. keeps independent track clocks and consumes no random draws on retriggers;
-12. rejects invalid matrix dimensions/references;
-13. matches the golden test in section 19.
+11. keeps independent track clocks and consumes no random draws on retriggers or on a fractional last start;
+12. treats non-integer `repeats` as `floor(repeats)` full starts plus one cropped partial start;
+13. rejects invalid matrix dimensions/references;
+14. matches the golden test in section 19.

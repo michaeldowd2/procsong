@@ -22,7 +22,7 @@ This player **MUST** follow [`SPECIFICATION.md`](../../../SPECIFICATION.md) (`fo
 
 Same zip + same seed as the web player → same chosen clips, mute flags, and integer start times. Unity’s mixer may still sound slightly different from the browser.
 
-In one sentence: each track starts clips on its own interval; it reuses a choice for `repeats` starts; evaluations use one shared PRNG in YAML track declaration order; mute does not clear the chosen clip.
+In one sentence: each track starts clips on its own interval; it reuses a choice for `repeats` starts (a non-integer value crops the last start); evaluations use one shared PRNG in YAML track declaration order; mute does not clear the chosen clip.
 
 Turn on **Log Schedule** to print the first evaluations (compare with the spec golden test: seed `12345`).
 

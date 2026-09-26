@@ -717,10 +717,12 @@
       throw new Error(`Track "${name}" clip_length must be a non-negative number`);
     }
 
-    const repeats = spec.repeats;
-    if (!Number.isInteger(repeats) || repeats < 1) {
-      throw new Error(`Track "${name}" repeats must be an integer >= 1`);
+    const repeats = Number(spec.repeats);
+    if (!Number.isFinite(repeats) || repeats <= 0) {
+      throw new Error(`Track "${name}" repeats must be a number > 0`);
     }
+    const fullRepeats = Math.floor(repeats);
+    const tailFraction = repeats - fullRepeats;
 
     let silenceProbability = 0;
     if (spec.silence_probability != null) {
@@ -740,6 +742,8 @@
       declIndex: index,
       loopSeconds: atLeastOne(spec.clip_length),
       repeats,
+      fullRepeats,
+      tailFraction,
       silenceProbability,
       clips,
       intra: parseMatrix(spec.intragroup_subsequent_weight_modifiers, name, 'intragroup_subsequent_weight_modifiers'),
@@ -892,7 +896,8 @@
         chosen: null,
         muted: true,
         nextLoop: 0,
-        remaining: 0,
+        remainingFull: 0,
+        tailPending: false,
         intraColIndex: track.intra ? new Map(track.intra.columns.map((id, i) => [id, i])) : null,
         interColIndex: track.inter ? new Map(track.inter.columns.map((id, i) => [id, i])) : null,
         interRepresented: [],
@@ -971,23 +976,36 @@
       return { rPart, rSilence, chosenId, chosen, muted };
     }
 
-    // spec §12 — Pulse. Retriggers consume no PRNG draws.
+    // spec §12 — Pulse. Retriggers and a fractional last start consume no PRNG draws.
     pulse(slot, tick) {
       let evaluated = null;
-      if (slot.remaining <= 0) {
+      if (slot.remainingFull <= 0 && !slot.tailPending) {
         evaluated = this.evaluate(slot);
         slot.chosenId = evaluated.chosenId;
         slot.chosen = evaluated.chosen;
         slot.muted = evaluated.muted;
-        slot.remaining = slot.track.repeats;
+        slot.remainingFull = slot.track.fullRepeats;
+        slot.tailPending = slot.track.tailFraction > 0;
       }
-      slot.remaining -= 1;
-      slot.nextLoop = tick + slot.track.loopSeconds;
+      let playSeconds;
+      let cropAudio;
+      if (slot.remainingFull > 0) {
+        playSeconds = slot.track.loopSeconds;
+        cropAudio = false;
+        slot.remainingFull -= 1;
+      } else {
+        playSeconds = atLeastOne(slot.track.tailFraction * slot.track.loopSeconds);
+        cropAudio = true;
+        slot.tailPending = false;
+      }
+      slot.nextLoop = tick + playSeconds;
       return {
         track: slot.track,
         chosenId: slot.chosenId,
         chosen: slot.chosen,
         muted: slot.muted,
+        playSeconds,
+        cropAudio,
         ...(evaluated || {}),
       };
     }
@@ -1694,8 +1712,8 @@
       this.sources.clear();
     }
 
-    // spec §15 — start the whole referenced clip; do not crop to LoopSeconds.
-    startFullClip(buffer, when) {
+    // spec §15 — full starts play the whole file; partial starts crop to PlaySeconds.
+    startClip(buffer, when, cropSeconds) {
       const src = this.ctx.createBufferSource();
       const fade = this.ctx.createGain();
       src.buffer = buffer;
@@ -1703,16 +1721,20 @@
       fade.connect(this.master);
       fade.gain.value = 0;
 
-      const fadeDur = Math.min(FADE_SEC, buffer.duration / 2);
+      const playDur = cropSeconds != null
+        ? Math.min(Math.max(cropSeconds, 0), buffer.duration)
+        : buffer.duration;
+      const fadeDur = Math.min(FADE_SEC, playDur / 2);
       if (fadeDur > 0) {
         fade.gain.setValueCurveAtTime(FADE_IN, when, fadeDur);
-        const fadeOutAt = when + buffer.duration - fadeDur;
+        const fadeOutAt = when + playDur - fadeDur;
         if (fadeOutAt >= when + fadeDur) fade.gain.setValueCurveAtTime(FADE_OUT, fadeOutAt, fadeDur);
       } else {
         fade.gain.setValueAtTime(1, when);
       }
 
-      src.start(when);
+      if (cropSeconds != null) src.start(when, 0, playDur);
+      else src.start(when);
       src.onended = () => this.sources.delete(src);
       this.sources.add(src);
     }
@@ -1722,7 +1744,13 @@
       for (const result of results) {
         if (result.muted || !result.chosen) continue;
         const buffer = this.buffers.get(result.chosen);
-        if (buffer) this.startFullClip(buffer, this.audioOrigin + tick);
+        if (buffer) {
+          this.startClip(
+            buffer,
+            this.audioOrigin + tick,
+            result.cropAudio ? result.playSeconds : null,
+          );
+        }
       }
     }
 

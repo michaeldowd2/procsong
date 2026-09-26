@@ -57,7 +57,9 @@ namespace Procsong
         public int DeclIndex;
         public double SilenceProbability;
         public int LoopSeconds;
-        public int Repeats;
+        public double Repeats;
+        public int FullRepeats;
+        public double TailFraction;
         public List<ProcsongClip> Clips = new List<ProcsongClip>();
         public ProcsongMatrix Intra;
         public ProcsongMatrix Inter;
@@ -71,6 +73,8 @@ namespace Procsong
         public string Chosen;
         public bool Muted;
         public bool Evaluated;
+        public int PlaySeconds;
+        public bool CropAudio;
         public double RPart;
         public double RSilence;
     }
@@ -90,7 +94,8 @@ namespace Procsong
             public string Chosen;
             public bool Muted = true;
             public int NextLoop;
-            public int Remaining;
+            public int RemainingFull;
+            public bool TailPending;
             public Dictionary<string, int> IntraColIndex;
             public Dictionary<string, int> InterColIndex;
             public List<Slot> InterRepresented = new List<Slot>();
@@ -123,7 +128,8 @@ namespace Procsong
                     Chosen = null,
                     Muted = true,
                     NextLoop = 0,
-                    Remaining = 0,
+                    RemainingFull = 0,
+                    TailPending = false,
                     IntraColIndex = IndexColumns(track.Intra),
                     InterColIndex = IndexColumns(track.Inter),
                 });
@@ -187,22 +193,34 @@ namespace Procsong
         ProcsongPulse Pulse(Slot slot, int tick)
         {
             var pulse = new ProcsongPulse();
-            if (slot.Remaining <= 0)
+            if (slot.RemainingFull <= 0 && !slot.TailPending)
             {
                 Evaluate(slot, pulse);
                 slot.ChosenId = pulse.ChosenId;
                 slot.Chosen = pulse.Chosen;
                 slot.Muted = pulse.Muted;
-                slot.Remaining = slot.Track.Repeats;
+                slot.RemainingFull = slot.Track.FullRepeats;
+                slot.TailPending = slot.Track.TailFraction > 0;
                 pulse.Evaluated = true;
+            }
+            if (slot.RemainingFull > 0)
+            {
+                pulse.PlaySeconds = slot.Track.LoopSeconds;
+                pulse.CropAudio = false;
+                slot.RemainingFull -= 1;
+            }
+            else
+            {
+                pulse.PlaySeconds = AtLeastOne(slot.Track.TailFraction * slot.Track.LoopSeconds);
+                pulse.CropAudio = true;
+                slot.TailPending = false;
             }
             pulse.Tick = tick;
             pulse.Track = slot.Track;
             pulse.ChosenId = slot.ChosenId;
             pulse.Chosen = slot.Chosen;
             pulse.Muted = slot.Muted;
-            slot.Remaining -= 1;
-            slot.NextLoop = tick + slot.Track.LoopSeconds;
+            slot.NextLoop = tick + pulse.PlaySeconds;
             return pulse;
         }
 
@@ -318,7 +336,9 @@ namespace Procsong
             if (double.IsNaN(clipLength) || clipLength < 0)
                 throw new ArgumentException("Track \"" + name + "\" clip_length must be a non-negative number");
 
-            int repeats = RequireIntegerAtLeast(spec.Get("repeats"), "Track \"" + name + "\" repeats");
+            double repeats = RequirePositiveNumber(spec.Get("repeats"), "Track \"" + name + "\" repeats");
+            int fullRepeats = (int)Math.Floor(repeats);
+            double tailFraction = repeats - fullRepeats;
 
             double silence = 0;
             if (spec.Get("silence_probability") != null)
@@ -342,6 +362,8 @@ namespace Procsong
                 DeclIndex = index,
                 LoopSeconds = AtLeastOne(clipLength),
                 Repeats = repeats,
+                FullRepeats = fullRepeats,
+                TailFraction = tailFraction,
                 SilenceProbability = silence,
                 Clips = clips,
                 Intra = ParseMatrix(spec.Get("intragroup_subsequent_weight_modifiers"), name, "intragroup_subsequent_weight_modifiers"),
@@ -555,12 +577,12 @@ namespace Procsong
             return id;
         }
 
-        static int RequireIntegerAtLeast(object node, string context)
+        static double RequirePositiveNumber(object node, string context)
         {
             double n = AsNumber(node, double.NaN);
-            if (double.IsNaN(n) || n < 1 || n != Math.Floor(n))
-                throw new ArgumentException(context + " must be an integer >= 1");
-            return (int)n;
+            if (double.IsNaN(n) || double.IsInfinity(n) || n <= 0)
+                throw new ArgumentException(context + " must be a number > 0");
+            return n;
         }
 
         static double ParseWeight(object node, string context)
