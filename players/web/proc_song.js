@@ -83,6 +83,8 @@
   --ps-playbar: var(--transport-play, var(--secondary, #666));
   --ps-clip: var(--viz-clip, #3fb950);
   --ps-clip-on: var(--viz-clip-on, var(--transport-play, var(--secondary, #5ee0ff)));
+  --ps-level: var(--viz-level, #e08a3c);
+  --ps-level-pad: 4px;
   --ps-sans: var(--sans, inherit);
   --ps-mono: var(--mono, ui-monospace, monospace);
   color: var(--ps-text);
@@ -441,6 +443,7 @@
 .ps-player .ps-viz[hidden] { display: none !important; }
 .ps-player .ps-viz-stage {
   position: relative;
+  isolation: isolate;
   box-sizing: border-box;
   width: max-content;
   min-width: 100%;
@@ -453,15 +456,14 @@
   height: 100%;
   overflow: visible;
   pointer-events: none;
-  z-index: 0;
+  z-index: 3;
 }
 .ps-player .ps-viz-tracks {
   position: relative;
-  z-index: 1;
   display: flex;
   align-items: flex-end;
   justify-content: safe center;
-  gap: 8px;
+  gap: 12px;
   width: 100%;
 }
 .ps-player .ps-viz-track {
@@ -475,10 +477,39 @@
   box-sizing: border-box;
 }
 .ps-player .ps-viz-clips {
+  position: relative;
   display: flex;
   flex-direction: column-reverse;
-  gap: 3px;
+  gap: 4px;
   align-items: stretch;
+  padding: var(--ps-level-pad) var(--ps-level-pad) 0;
+}
+.ps-player .ps-viz-level {
+  position: absolute;
+  z-index: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 0;
+  border-radius: 0;
+  background-image: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--ps-level) 72%, var(--ps-bg)),
+    var(--ps-level)
+  );
+  background-repeat: no-repeat;
+  background-position: left bottom;
+  background-size: 100% var(--ps-stack, 100%);
+  pointer-events: none;
+  overflow: hidden;
+  transition: height 0.28s ease;
+}
+.ps-player .ps-viz-level.is-muted {
+  background-image: linear-gradient(
+    to top,
+    color-mix(in srgb, var(--ps-level) 36%, var(--ps-bg)),
+    color-mix(in srgb, var(--ps-level) 58%, var(--ps-bg))
+  );
 }
 .ps-player .ps-viz-clip {
   position: relative;
@@ -491,10 +522,9 @@
   min-width: 0;
   min-height: 14px;
   padding: 2px 3px;
-  border-radius: 3px;
-  background: var(--ps-clip);
-  color: var(--ps-btn-text);
-  opacity: 0.55;
+  border-radius: 0;
+  background: color-mix(in srgb, var(--ps-clip) calc(62% + var(--ps-energy, 0) * 38%), var(--ps-bg));
+  color: var(--ps-text);
   font-family: var(--ps-mono);
   font-size: 8px;
   font-weight: 500;
@@ -504,19 +534,23 @@
   overflow: hidden;
   text-overflow: ellipsis;
   user-select: none;
-  transition: background 0.15s ease, opacity 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease;
 }
 .ps-player .ps-viz-clip.is-current {
   background: var(--ps-clip-on);
+  color: var(--ps-btn-text);
   opacity: 1;
   animation: ps-clip-pulse 1.1s ease-in-out infinite;
 }
 .ps-player .ps-viz-clip.is-current.is-muted {
   animation: none;
-  opacity: 0.45;
-  background: color-mix(in srgb, var(--ps-clip-on) 40%, transparent);
+  opacity: 1;
+  color: var(--ps-text);
+  background: color-mix(in srgb, var(--ps-clip-on) 46%, var(--ps-bg));
 }
 .ps-player .ps-viz-name {
+  position: relative;
+  z-index: 4;
   max-width: 100%;
   color: var(--ps-muted);
   font-family: var(--ps-mono);
@@ -526,12 +560,13 @@
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
+  transition: color 0.2s ease;
 }
-.ps-player .ps-edge { pointer-events: auto; transition: opacity 0.2s ease; }
-.ps-player .ps-edge.is-inter { fill: var(--ps-secondary); stroke: none; }
-.ps-player .ps-edge.is-live.is-inter {
-  filter: drop-shadow(0 0 1.5px color-mix(in srgb, var(--ps-secondary) 50%, transparent));
+.ps-player .ps-viz-name.is-live {
+  color: var(--ps-text);
 }
+.ps-player .ps-edge { pointer-events: none; }
+.ps-player .ps-edge.is-inter { fill: var(--ps-clip-on); stroke: none; }
 @keyframes ps-clip-pulse {
   0%, 100% {
     box-shadow: 0 0 0 0 color-mix(in srgb, var(--ps-clip-on) 50%, transparent);
@@ -548,13 +583,14 @@
   .ps-player .ps-title { font-size: 1.08rem; }
   .ps-player .ps-artist { font-size: 0.95rem; }
   .ps-player .ps-viz-track { min-width: 44px; max-width: 88px; }
-  .ps-player .ps-viz-tracks { gap: 6px; }
+  .ps-player .ps-viz-tracks { gap: 8px; }
 }
 @media (prefers-reduced-motion: reduce) {
   .ps-player .ps-spinner,
   .ps-player .ps-loading::before,
   .ps-player .ps-transport.loading,
-  .ps-player .ps-viz-clip.is-current { animation: none; }
+  .ps-player .ps-viz-clip.is-current,
+  .ps-player .ps-viz-level { animation: none; transition: none; }
 }
 `;
 
@@ -1151,7 +1187,7 @@
 
   function edgeOpacity(weight, maxWeight) {
     const n = maxWeight > 0 ? weight / maxWeight : 0;
-    return 0.035 + n * 0.07;
+    return 0.14 + n * 0.18;
   }
 
   // Intra: row = previous clip, column = next candidate.
@@ -1774,6 +1810,7 @@
       const svg = this.ui?.vizEdges;
       if (!this.ui?.viz || !tracksWrap || !svg) return;
       this.vizBoxes = new Map();
+      this.vizLevels = new Map();
       this.clipEls = new Map();
       this.edgeEls = [];
       tracksWrap.replaceChildren();
@@ -1788,9 +1825,15 @@
 
         const clipsWrap = document.createElement('div');
         clipsWrap.className = 'ps-viz-clips';
-        const boxes = track.clips.map((clip) => {
+        const level = document.createElement('div');
+        level.className = 'ps-viz-level';
+        level.setAttribute('aria-hidden', 'true');
+        clipsWrap.appendChild(level);
+        const boxes = track.clips.map((clip, i) => {
           const box = document.createElement('span');
           box.className = 'ps-viz-clip';
+          const energy = track.clips.length <= 1 ? 1 : i / (track.clips.length - 1);
+          box.style.setProperty('--ps-energy', energy.toFixed(3));
           box.textContent = clip.id;
           box.title = clip.id;
           clipsWrap.appendChild(box);
@@ -1804,6 +1847,7 @@
         name.title = track.name;
 
         col.append(clipsWrap, name);
+        this.vizLevels.set(track, { bar: level, clips: clipsWrap, name });
         tracksWrap.appendChild(col);
         this.vizBoxes.set(track, boxes);
       }
@@ -1816,7 +1860,7 @@
         if (!this.clipEls.has(link.fromId) || !this.clipEls.has(link.toId)) continue;
         const path = document.createElementNS(SVG_NS, 'path');
         path.setAttribute('class', 'ps-edge is-inter');
-        path.setAttribute('opacity', String(link.opacity));
+        path.setAttribute('opacity', '0');
         const title = document.createElementNS(SVG_NS, 'title');
         title.textContent = `${link.fromId} → ${link.toId} ×${formatWeight(link.weight)}`;
         path.appendChild(title);
@@ -1829,20 +1873,35 @@
 
     ensureVizObserver() {
       if (this._vizObserver || typeof ResizeObserver === 'undefined' || !this.ui?.vizStage) return;
-      this._vizObserver = new ResizeObserver(() => this.layoutEdges());
+      this._vizObserver = new ResizeObserver(() => {
+        this.layoutEdges();
+        this.syncLevels();
+      });
       this._vizObserver.observe(this.ui.vizStage);
     }
 
     setVizVisible(show) {
       if (!this.ui?.viz) return;
       this.ui.viz.hidden = !show;
-      if (show) requestAnimationFrame(() => this.layoutEdges());
+      if (show) {
+        requestAnimationFrame(() => {
+          this.layoutEdges();
+          this.syncLevels();
+        });
+      }
     }
 
     clearViz() {
       if (this.vizBoxes) {
         for (const boxes of this.vizBoxes.values()) {
           boxes.forEach((box) => box.classList.remove('is-current', 'is-muted'));
+        }
+      }
+      if (this.vizLevels) {
+        for (const level of this.vizLevels.values()) {
+          level.bar.style.height = '0px';
+          level.bar.classList.remove('is-muted');
+          level.name.classList.remove('is-live');
         }
       }
       if (!this.edgeEls) return;
@@ -1862,13 +1921,47 @@
         const chosenId = slot?.chosen ? slot.chosenId : null;
         const muted = slot?.muted ?? true;
         if (chosenId) current.add(chosenId);
+        let chosenIndex = -1;
         track.clips.forEach((clip, i) => {
           const on = chosenId != null && clip.id === chosenId;
+          if (on) chosenIndex = i;
           boxes[i].classList.toggle('is-current', on);
           boxes[i].classList.toggle('is-muted', on && muted);
         });
+        const level = this.vizLevels?.get(track);
+        if (level) {
+          level.name.classList.toggle('is-live', chosenIndex >= 0 && !muted);
+          this.placeLevel(level, boxes, chosenIndex, muted);
+        }
       }
       this.paintEdges(current);
+    }
+
+    // Bar frames the clips from the bottom of the column to the chosen clip,
+    // with the same padding on every side. Higher clips make a taller bar.
+    placeLevel(level, boxes, index, muted) {
+      const stack = level.clips.offsetHeight;
+      if (stack <= 0) return;
+      level.bar.style.setProperty('--ps-stack', `${stack}px`);
+      level.bar.classList.toggle('is-muted', index >= 0 && muted);
+      if (index < 0) {
+        level.bar.style.height = '0px';
+        return;
+      }
+      const pad = parseFloat(getComputedStyle(level.clips).paddingTop) || 0;
+      const reach = Math.max(0, stack - boxes[index].offsetTop + pad);
+      level.bar.style.height = `${reach}px`;
+    }
+
+    syncLevels() {
+      if (!this.vizBoxes || !this.vizLevels) return;
+      for (const [track, boxes] of this.vizBoxes) {
+        const level = this.vizLevels.get(track);
+        if (!level) continue;
+        const index = boxes.findIndex((box) => box.classList.contains('is-current'));
+        const muted = index >= 0 && boxes[index].classList.contains('is-muted');
+        this.placeLevel(level, boxes, index, muted);
+      }
     }
 
     paintEdges(current) {
@@ -1876,8 +1969,9 @@
       for (const edge of this.edgeEls) {
         const live = current.has(edge.fromId) && current.has(edge.toId);
         edge.el.classList.toggle('is-live', live);
-        edge.el.setAttribute('opacity', live ? '0.9' : String(edge.opacity));
+        edge.el.setAttribute('opacity', live ? '1' : '0');
       }
+      this.layoutEdges();
     }
 
     layoutEdges() {
@@ -1899,7 +1993,10 @@
         });
       }
 
-      const inter = this.edgeEls;
+      const inter = this.edgeEls.filter((edge) => edge.el.classList.contains('is-live'));
+      for (const edge of this.edgeEls) {
+        if (!edge.el.classList.contains('is-live')) edge.el.setAttribute('d', '');
+      }
 
       for (const [id, edges] of groupBy(inter, (edge) => edge.fromId)) {
         edges.sort((a, b) => clipCenterY(boxes, a.toId) - clipCenterY(boxes, b.toId));

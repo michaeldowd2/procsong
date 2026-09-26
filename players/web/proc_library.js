@@ -1,8 +1,8 @@
 /**
  * ProcsongLibrary — embeddable song list that drives a ProcsongPlayer.
  *
- * Renders a list of procsongs into a target element. Each row has a Play
- * button that looks up the player by target id and calls player.play().
+ * Renders a list of procsongs into a target element. Choosing a row loads
+ * that song into the player; playback stays on the player's own controls.
  *
  * No extra script dependencies. Include after proc_song.js if you want Play
  * to drive a ProcsongPlayer on the same page.
@@ -167,26 +167,6 @@
   font-size: 10px;
   white-space: nowrap;
 }
-.pslib .pslib-play {
-  flex: 0 0 32px;
-  width: 32px;
-  height: 32px;
-  padding: 0;
-  display: grid;
-  place-items: center;
-  background: var(--ps-accent);
-  color: var(--ps-btn-text);
-  border: 0;
-  border-radius: 50%;
-  cursor: pointer;
-}
-.pslib .pslib-play svg {
-  width: 14px;
-  height: 14px;
-  margin-left: 2px;
-  fill: currentColor;
-}
-.pslib .pslib-play:disabled { opacity: 0.45; cursor: default; }
 @media (max-width: 640px) {
   .pslib .pslib-main {
     flex-direction: column;
@@ -553,14 +533,8 @@
 
       row.appendChild(main);
 
-      const play = document.createElement('button');
-      play.type = 'button';
-      play.className = 'pslib-play';
-      play.setAttribute('aria-hidden', 'true');
-      play.tabIndex = -1;
-      play.innerHTML = '<svg viewBox="0 0 24 24" aria-hidden="true"><path d="M9 6.5v11l9-5.5-9-5.5z"/></svg>';
       const start = () => {
-        this.playItem(item, play).catch(() => {});
+        this.playItem(item).catch(() => {});
       };
       row.addEventListener('click', start);
       row.addEventListener('keydown', (event) => {
@@ -570,8 +544,7 @@
         }
       });
       row.tabIndex = 0;
-      row.setAttribute('aria-label', item.title ? `Play ${item.title}` : 'Play procsong');
-      row.appendChild(play);
+      row.setAttribute('aria-label', item.title || 'Procsong');
       return row;
     }
 
@@ -582,27 +555,22 @@
       });
     }
 
-    async playItem(item, button) {
+    async playItem(item) {
       const player = this.findPlayer();
       if (!player || typeof player.play !== 'function') {
         throw new Error('No procsong player found. Pass the player target id as `player`.');
       }
       this.watchPlayer();
-      button.disabled = true;
-      try {
-        await player.play({
-          title: item.title,
-          artist: item.artist,
-          imageUrl: item.imageUrl,
-          description: item.description,
-          tags: item.tags,
-          procSongUrl: item.procSongUrl,
-        });
-        this.activeUrl = item.procSongUrl;
-        this.markActive();
-      } finally {
-        button.disabled = false;
-      }
+      await player.play({
+        title: item.title,
+        artist: item.artist,
+        imageUrl: item.imageUrl,
+        description: item.description,
+        tags: item.tags,
+        procSongUrl: item.procSongUrl,
+      });
+      this.activeUrl = item.procSongUrl;
+      this.markActive();
     }
   }
 
