@@ -22,7 +22,7 @@
  *     target: 'player',            // id, selector, or HTMLElement
  *     title: 'Game Music',         // optional
  *     artist: 'Michael Dowd',       // optional
- *     imageUrl: 'https://…',      // optional; omitted → no image
+ *     imageUrl: 'https://…',      // optional; stored and emitted, not drawn
  *     description: '…',          // optional
  *     tags: ['synth', 'game'],  // optional; string or array
  *     procSongUrl: 'https://….zip',
@@ -33,7 +33,7 @@
  *   player.stop();
  *
  * Display rules for the main play box:
- *   - no imageUrl                         → no image
+ *   - cover art is not rendered (imageUrl is still kept for events)
  *   - no title and no artist              → package URL as text, if set
  *   - title only                          → title, URL beneath
  *   - title and artist                    → title • artist on one line
@@ -88,7 +88,10 @@
   color: var(--ps-text);
   font-family: var(--ps-sans);
   margin: 0 0 10px;
+  min-width: 0;
+  max-width: 100%;
 }
+.ps-player.is-loading { cursor: progress; }
 .ps-player .ps-label {
   margin: 0 0 8px;
   color: var(--ps-muted);
@@ -98,58 +101,55 @@
   text-transform: uppercase;
 }
 .ps-player .ps-box {
+  position: relative;
   background: var(--ps-bg);
   border: 1px solid var(--ps-line);
   border-radius: 8px;
   padding: 18px 18px 14px;
   margin-bottom: 10px;
+  min-width: 0;
+  max-width: 100%;
 }
 .ps-player [hidden] { display: none !important; }
 .ps-player .ps-now {
-  display: flex;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 148px;
   align-items: stretch;
-  gap: 16px;
+  gap: 12px 16px;
   min-width: 0;
-}
-.ps-player .ps-cover-wrap {
-  flex: 0 0 96px;
-  width: 96px;
-  align-self: stretch;
-  min-height: 96px;
-}
-.ps-player .ps-cover {
-  display: block;
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  border-radius: 6px;
-  background: var(--ps-input);
 }
 .ps-player .ps-identity {
   min-width: 0;
-  flex: 1;
+  max-width: 100%;
   display: flex;
   flex-direction: column;
-  min-height: 96px;
+  min-height: 0;
 }
 .ps-player .ps-heading {
   margin: 0;
   display: flex;
   align-items: baseline;
   flex-wrap: wrap;
-  gap: 0.4em;
+  gap: 0.35em;
   min-width: 0;
+  max-width: 100%;
   line-height: 1.2;
 }
 .ps-player .ps-title {
+  min-width: 0;
+  max-width: 100%;
   font-size: 1.25rem;
   font-weight: 600;
+  overflow-wrap: break-word;
 }
 .ps-player .ps-dot { color: var(--ps-muted); flex: 0 0 auto; }
 .ps-player .ps-artist {
+  min-width: 0;
+  max-width: 100%;
   color: var(--ps-muted);
   font-weight: 400;
   font-size: 1rem;
+  overflow-wrap: break-word;
 }
 .ps-player .ps-subtitle {
   margin: 6px 0 0;
@@ -167,6 +167,7 @@
   color: var(--ps-muted);
   font-size: 13px;
   line-height: 1.4;
+  overflow-wrap: break-word;
 }
 .ps-player .ps-tags {
   display: flex;
@@ -195,9 +196,8 @@
   flex-direction: column;
   justify-content: space-between;
   align-items: stretch;
-  flex: 0 0 148px;
-  width: 148px;
-  min-height: 96px;
+  min-width: 0;
+  min-height: 0;
   gap: 8px;
 }
 .ps-player .ps-seed-field {
@@ -332,68 +332,173 @@
   overflow: hidden;
 }
 .ps-player .ps-transport.loading,
-.ps-player .ps-transport.playing { display: block; }
-.ps-player .ps-transport.loading { background: color-mix(in srgb, var(--ps-load) 35%, transparent); }
-.ps-player .ps-transport.playing { background: color-mix(in srgb, var(--ps-playbar) 35%, transparent); }
-.ps-player .ps-transport::after {
+.ps-player .ps-transport.playing {
+  display: block;
+  background-repeat: no-repeat;
+  background-size: 42% 100%;
+  animation: ps-border-sweep 1.15s linear infinite;
+}
+.ps-player .ps-transport.loading {
+  background-color: color-mix(in srgb, var(--ps-load) 35%, transparent);
+  background-image: linear-gradient(90deg, transparent, var(--ps-load), transparent);
+}
+.ps-player .ps-transport.playing {
+  background-color: color-mix(in srgb, var(--ps-playbar) 35%, transparent);
+  background-image: linear-gradient(90deg, transparent, var(--ps-playbar), transparent);
+  animation-duration: 1.8s;
+}
+.ps-player .ps-loading {
+  position: absolute;
+  inset: 0;
+  z-index: 4;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 18px 16px;
+  border-radius: inherit;
+  overflow: hidden;
+  background:
+    linear-gradient(180deg, color-mix(in srgb, var(--ps-load) 18%, var(--ps-bg)), color-mix(in srgb, var(--ps-bg) 96%, black));
+  box-shadow: inset 0 0 0 1px color-mix(in srgb, var(--ps-load) 55%, transparent);
+}
+.ps-player .ps-loading::before {
   content: "";
   position: absolute;
-  inset: 0 auto 0 0;
-  width: 42%;
-}
-.ps-player .ps-transport.loading::after {
+  top: 0;
+  left: 0;
+  right: 0;
+  height: 3px;
   background: linear-gradient(90deg, transparent, var(--ps-load), transparent);
-  animation: ps-sweep 1.15s linear infinite;
+  background-size: 42% 100%;
+  background-repeat: no-repeat;
+  animation: ps-border-sweep 1.05s linear infinite;
 }
-.ps-player .ps-transport.playing::after {
-  background: linear-gradient(90deg, transparent, var(--ps-playbar), transparent);
-  animation: ps-sweep 1.8s linear infinite;
+@keyframes ps-border-sweep {
+  from { background-position: -42% 0; }
+  to { background-position: 142% 0; }
 }
-@keyframes ps-sweep {
-  from { transform: translateX(-120%); }
-  to { transform: translateX(280%); }
+.ps-player.is-loading .ps-box {
+  border-color: color-mix(in srgb, var(--ps-load) 70%, var(--ps-line));
+  box-shadow: 0 0 22px color-mix(in srgb, var(--ps-load) 28%, transparent);
+  min-height: 168px;
 }
-.ps-player .ps-viz {
-  display: flex;
-  align-items: flex-end;
-  justify-content: space-around;
-  gap: 10px;
-  margin-top: 14px;
-  padding-top: 14px;
-  border-top: 1px solid var(--ps-line);
-  overflow-x: auto;
-}
-.ps-player .ps-viz[hidden] { display: none !important; }
-.ps-player .ps-viz-track {
+.ps-player .ps-loading-panel {
   display: flex;
   flex-direction: column;
   align-items: center;
   gap: 8px;
+  max-width: 100%;
+  text-align: center;
+}
+.ps-player .ps-spinner {
+  width: 42px;
+  height: 42px;
+  margin-bottom: 4px;
+  border-radius: 50%;
+  border: 3px solid color-mix(in srgb, var(--ps-load) 28%, transparent);
+  border-top-color: var(--ps-load);
+  animation: ps-spin 0.75s linear infinite;
+}
+.ps-player .ps-loading-kicker {
+  margin: 0;
+  color: var(--ps-load);
+  font-family: var(--ps-mono);
+  font-size: 12px;
+  font-weight: 500;
+  letter-spacing: 0.16em;
+  text-transform: uppercase;
+}
+.ps-player .ps-loading-title {
+  margin: 0;
+  max-width: 100%;
+  color: var(--ps-text);
+  font-size: 1.15rem;
+  font-weight: 600;
+  line-height: 1.25;
+  overflow-wrap: break-word;
+}
+.ps-player .ps-loading-title:empty { display: none; }
+.ps-player .ps-loading-detail {
+  margin: 0;
+  max-width: 100%;
+  color: var(--ps-muted);
+  font-size: 14px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+@keyframes ps-spin { to { transform: rotate(360deg); } }
+.ps-player .ps-viz {
+  width: 100%;
+  max-width: 100%;
+  min-width: 0;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--ps-line);
+  overflow-x: auto;
+  overflow-y: hidden;
+  contain: inline-size;
+}
+.ps-player .ps-viz[hidden] { display: none !important; }
+.ps-player .ps-viz-stage {
+  position: relative;
+  box-sizing: border-box;
+  width: max-content;
+  min-width: 100%;
+  margin-inline: auto;
+}
+.ps-player .ps-viz-edges {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  overflow: visible;
+  pointer-events: none;
+  z-index: 0;
+}
+.ps-player .ps-viz-tracks {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  align-items: flex-end;
+  justify-content: safe center;
+  gap: 8px;
+  width: 100%;
+}
+.ps-player .ps-viz-track {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 4px;
   flex: 1 1 0;
   min-width: 48px;
+  max-width: 104px;
+  box-sizing: border-box;
 }
 .ps-player .ps-viz-clips {
   display: flex;
   flex-direction: column-reverse;
-  gap: 4px;
-  align-items: center;
+  gap: 3px;
+  align-items: stretch;
 }
 .ps-player .ps-viz-clip {
+  position: relative;
+  z-index: 1;
   display: flex;
   align-items: center;
   justify-content: center;
   box-sizing: border-box;
-  min-width: 28px;
-  max-width: 100%;
-  padding: 2px 6px;
+  width: 100%;
+  min-width: 0;
+  min-height: 14px;
+  padding: 2px 3px;
   border-radius: 3px;
   background: var(--ps-clip);
   color: var(--ps-btn-text);
-  opacity: 0.5;
+  opacity: 0.55;
   font-family: var(--ps-mono);
-  font-size: 10px;
+  font-size: 8px;
   font-weight: 500;
-  letter-spacing: 0.02em;
+  letter-spacing: 0;
   line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
@@ -412,38 +517,44 @@
   background: color-mix(in srgb, var(--ps-clip-on) 40%, transparent);
 }
 .ps-player .ps-viz-name {
-  max-width: 76px;
+  max-width: 100%;
   color: var(--ps-muted);
   font-family: var(--ps-mono);
-  font-size: 10px;
-  letter-spacing: 0.04em;
+  font-size: 8px;
+  letter-spacing: 0.03em;
   text-align: center;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+.ps-player .ps-edge { pointer-events: auto; transition: opacity 0.2s ease; }
+.ps-player .ps-edge.is-inter { fill: var(--ps-secondary); stroke: none; }
+.ps-player .ps-edge.is-live.is-inter {
+  filter: drop-shadow(0 0 1.5px color-mix(in srgb, var(--ps-secondary) 50%, transparent));
+}
 @keyframes ps-clip-pulse {
   0%, 100% {
-    transform: scale(1);
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ps-clip-on) 55%, transparent);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ps-clip-on) 50%, transparent);
   }
   50% {
-    transform: scale(1.06);
-    box-shadow: 0 0 9px 2px color-mix(in srgb, var(--ps-clip-on) 45%, transparent);
+    box-shadow: 0 0 7px 1px color-mix(in srgb, var(--ps-clip-on) 70%, transparent);
   }
 }
 @media (max-width: 640px) {
-  .ps-player .ps-now { flex-wrap: wrap; }
-  .ps-player .ps-controls-col {
-    margin-left: auto;
-    min-height: 0;
-    align-self: flex-start;
-    justify-content: flex-start;
-  }
-  .ps-player .ps-volume { margin-top: 8px; }
-  .ps-player .ps-viz { gap: 6px; }
-  .ps-player .ps-viz-clip { font-size: 9px; padding: 2px 5px; min-width: 24px; }
-  .ps-player .ps-viz-name { font-size: 9px; max-width: 60px; }
+  .ps-player .ps-box { padding: 12px 12px 10px; }
+  .ps-player .ps-now { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .ps-player .ps-controls-col { justify-content: flex-start; }
+  .ps-player .ps-volume { margin-top: 0; }
+  .ps-player .ps-title { font-size: 1.08rem; }
+  .ps-player .ps-artist { font-size: 0.95rem; }
+  .ps-player .ps-viz-track { min-width: 44px; max-width: 88px; }
+  .ps-player .ps-viz-tracks { gap: 6px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .ps-player .ps-spinner,
+  .ps-player .ps-loading::before,
+  .ps-player .ps-transport.loading,
+  .ps-player .ps-viz-clip.is-current { animation: none; }
 }
 `;
 
@@ -997,6 +1108,104 @@
 
   const FADE_IN = equalPowerCurve(32, (t) => Math.sin(t * Math.PI * 0.5));
   const FADE_OUT = equalPowerCurve(32, (t) => Math.cos(t * Math.PI * 0.5));
+  const SVG_NS = 'http://www.w3.org/2000/svg';
+
+  function groupBy(list, keyFn) {
+    const map = new Map();
+    for (const item of list) {
+      const key = keyFn(item);
+      if (!map.has(key)) map.set(key, []);
+      map.get(key).push(item);
+    }
+    return map;
+  }
+
+  function formatWeight(weight) {
+    if (Number.isInteger(weight)) return String(weight);
+    const rounded = Math.round(weight * 100) / 100;
+    return String(rounded);
+  }
+
+  function edgeThickness(weight, maxWeight) {
+    const n = maxWeight > 0 ? weight / maxWeight : 0;
+    return 0.8 + n * 2.2;
+  }
+
+  function edgeOpacity(weight, maxWeight) {
+    const n = maxWeight > 0 ? weight / maxWeight : 0;
+    return 0.035 + n * 0.07;
+  }
+
+  // Intra: row = previous clip, column = next candidate.
+  // Inter: column = upstream clip, row = downstream candidate.
+  function matrixLinks(kind, matrix, fromIsColumn) {
+    if (!matrix) return [];
+    let maxWeight = 0;
+    const cells = [];
+    for (const [rowId, values] of Object.entries(matrix.rows)) {
+      matrix.columns.forEach((colId, index) => {
+        const weight = values[index];
+        if (!(weight > 0)) return;
+        maxWeight = Math.max(maxWeight, weight);
+        cells.push(fromIsColumn
+          ? { kind, fromId: colId, toId: rowId, weight }
+          : { kind, fromId: rowId, toId: colId, weight });
+      });
+    }
+    return cells.map((cell) => ({
+      ...cell,
+      thickness: edgeThickness(cell.weight, maxWeight),
+      opacity: edgeOpacity(cell.weight, maxWeight),
+    }));
+  }
+
+  function placePorts(edges, box, side) {
+    if (!box || !edges.length) return;
+    const gap = 1.1;
+    const sum = edges.reduce((total, edge) => total + edge.thickness, 0)
+      + gap * Math.max(0, edges.length - 1);
+    const room = Math.max(3, box.h - 2);
+    const scale = sum > room ? room / sum : 1;
+    let cursor = box.y + (box.h - sum * scale) / 2;
+    const x = side === 'right' ? box.x + box.w : box.x;
+    edges.forEach((edge) => {
+      const span = edge.thickness * scale;
+      const y = cursor + span / 2;
+      const t = Math.max(0.75, span);
+      if (side === 'right') {
+        edge.x1 = x;
+        edge.y1 = y;
+        edge.t1 = t;
+      } else {
+        edge.x2 = x;
+        edge.y2 = y;
+        edge.t2 = t;
+      }
+      cursor += span + gap * scale;
+    });
+  }
+
+  function ribbonPath(x1, y1, x2, y2, t1, t2) {
+    const h1 = t1 / 2;
+    const h2 = t2 / 2;
+    const dx = Math.max(6, Math.abs(x2 - x1) * 0.55);
+    const sign = x2 >= x1 ? 1 : -1;
+    const c1 = x1 + sign * dx;
+    const c2 = x2 - sign * dx;
+    const n = (value) => value.toFixed(2);
+    return [
+      `M ${n(x1)} ${n(y1 - h1)}`,
+      `C ${n(c1)} ${n(y1 - h1)}, ${n(c2)} ${n(y2 - h2)}, ${n(x2)} ${n(y2 - h2)}`,
+      `L ${n(x2)} ${n(y2 + h2)}`,
+      `C ${n(c2)} ${n(y2 + h2)}, ${n(c1)} ${n(y1 + h1)}, ${n(x1)} ${n(y1 + h1)}`,
+      'Z',
+    ].join(' ');
+  }
+
+  function clipCenterY(boxes, id) {
+    const box = boxes.get(id);
+    return box ? box.y + box.h / 2 : 0;
+  }
 
   class ProcsongPlayer {
     /**
@@ -1029,6 +1238,8 @@
       this.playSeq = 0;
       this._busy = false;
       this.vizBoxes = null;
+      this.clipEls = null;
+      this.edgeEls = null;
 
       this.setSong(options);
     }
@@ -1053,13 +1264,15 @@
      * @returns {ProcsongPlayer}
      */
     initialise() {
+      if (this._vizObserver) {
+        this._vizObserver.disconnect();
+        this._vizObserver = null;
+      }
       ensureCss();
       this.el = resolveElement(this.target);
       this.el.innerHTML = this.shellHtml();
       this.ui = {
         root: this.el.querySelector('.ps-player'),
-        coverWrap: this.el.querySelector('.ps-cover-wrap'),
-        cover: this.el.querySelector('.ps-cover'),
         heading: this.el.querySelector('.ps-heading'),
         title: this.el.querySelector('.ps-title'),
         dot: this.el.querySelector('.ps-dot'),
@@ -1075,6 +1288,12 @@
         status: this.el.querySelector('.ps-status'),
         transport: this.el.querySelector('.ps-transport'),
         viz: this.el.querySelector('.ps-viz'),
+        vizStage: this.el.querySelector('.ps-viz-stage'),
+        vizEdges: this.el.querySelector('.ps-viz-edges'),
+        vizTracks: this.el.querySelector('.ps-viz-tracks'),
+        loading: this.el.querySelector('.ps-loading'),
+        loadingTitle: this.el.querySelector('.ps-loading-title'),
+        loadingDetail: this.el.querySelector('.ps-loading-detail'),
         clock: this.el.querySelector('.ps-clock'),
       };
       this.bindUi();
@@ -1181,9 +1400,6 @@
           ${label}
           <div class="ps-box">
             <div class="ps-now">
-              <div class="ps-cover-wrap" hidden>
-                <img class="ps-cover" alt="">
-              </div>
               <div class="ps-identity">
                 <p class="ps-empty">Please select a procsong to play</p>
                 <p class="ps-heading" hidden>
@@ -1218,7 +1434,20 @@
               <div class="ps-status"></div>
               <div class="ps-transport"></div>
             </div>
-            <div class="ps-viz" hidden></div>
+            <div class="ps-viz" hidden>
+              <div class="ps-viz-stage">
+                <svg class="ps-viz-edges" aria-hidden="true"></svg>
+                <div class="ps-viz-tracks"></div>
+              </div>
+            </div>
+            <div class="ps-loading" hidden role="status" aria-live="polite">
+              <div class="ps-loading-panel">
+                <div class="ps-spinner" aria-hidden="true"></div>
+                <p class="ps-loading-kicker">Loading</p>
+                <p class="ps-loading-title"></p>
+                <p class="ps-loading-detail">Loading song…</p>
+              </div>
+            </div>
           </div>
         </div>
       `;
@@ -1249,24 +1478,8 @@
       if (!this.ui) return;
       const title = this.title.trim();
       const artist = this.artist.trim();
-      const imageUrl = this.imageUrl.trim();
       const url = this.procSongUrl.trim();
       const hasTitleAndArtist = Boolean(title && artist);
-
-      if (imageUrl) {
-        if (this.ui.coverWrap) this.ui.coverWrap.hidden = false;
-        this.ui.cover.hidden = false;
-        this.ui.cover.src = dropboxDirectUrl(imageUrl);
-        this.ui.cover.alt = title || artist || 'Cover art';
-        this.ui.cover.onerror = () => {
-          if (this.ui.coverWrap) this.ui.coverWrap.hidden = true;
-          this.ui.cover.hidden = true;
-        };
-      } else {
-        if (this.ui.coverWrap) this.ui.coverWrap.hidden = true;
-        this.ui.cover.hidden = true;
-        this.ui.cover.removeAttribute('src');
-      }
 
       if (this.ui.heading) this.ui.heading.hidden = !title && !artist;
 
@@ -1335,7 +1548,11 @@
     }
 
     setStatus(message) {
-      this.ui.status.textContent = message || '';
+      const text = message || '';
+      if (this.ui.loadingDetail) {
+        this.ui.loadingDetail.textContent = text || (this._busy ? 'Loading song…' : '');
+      }
+      if (this.ui.status) this.ui.status.textContent = this._busy ? '' : text;
     }
 
     setClock(seconds) {
@@ -1356,13 +1573,28 @@
 
     setBusy(busy) {
       this._busy = Boolean(busy);
+      if (this._busy && this.ui?.loadingDetail) {
+        const name = this.title.trim();
+        this.ui.loadingDetail.textContent = name ? `Loading ${name}…` : 'Loading song…';
+      }
       this.syncControls();
     }
 
     syncControls() {
       if (!this.ui) return;
       const ready = this.hasSong();
-      if (this.ui.root) this.ui.root.classList.toggle('is-empty', !ready);
+      const loading = Boolean(this._busy);
+      if (this.ui.root) {
+        this.ui.root.classList.toggle('is-empty', !ready);
+        this.ui.root.classList.toggle('is-loading', loading);
+        this.ui.root.setAttribute('aria-busy', loading ? 'true' : 'false');
+      }
+      if (this.ui.loading) this.ui.loading.hidden = !loading;
+      if (loading && this.ui.loadingTitle) {
+        const title = this.title.trim();
+        const artist = this.artist.trim();
+        this.ui.loadingTitle.textContent = [title, artist].filter(Boolean).join(' · ');
+      }
       if (this.ui.empty) this.ui.empty.hidden = ready;
       if (this.ui.playBtn) this.ui.playBtn.disabled = !ready || (this._busy && !this.playing);
       if (this.ui.stopBtn) this.ui.stopBtn.disabled = !ready || !this.playing;
@@ -1508,14 +1740,20 @@
       this.timer = setTimeout(() => this.schedulerPulse(), CLOCK_MS);
     }
 
-    // Build the per-track clip visualisation: one column per track, a small box
-    // per clip, with the track name underneath.
+    // One column per track. Inter-group weights are ribbons between columns.
     buildViz() {
-      if (!this.ui?.viz) return;
+      const tracksWrap = this.ui?.vizTracks;
+      const svg = this.ui?.vizEdges;
+      if (!this.ui?.viz || !tracksWrap || !svg) return;
       this.vizBoxes = new Map();
-      this.ui.viz.replaceChildren();
+      this.clipEls = new Map();
+      this.edgeEls = [];
+      tracksWrap.replaceChildren();
+      svg.replaceChildren();
+
       const tracks = this.pkg?.tracks || [];
       if (!tracks.length) return;
+
       for (const track of tracks) {
         const col = document.createElement('div');
         col.className = 'ps-viz-track';
@@ -1528,6 +1766,7 @@
           box.textContent = clip.id;
           box.title = clip.id;
           clipsWrap.appendChild(box);
+          this.clipEls.set(clip.id, box);
           return box;
         });
 
@@ -1537,19 +1776,51 @@
         name.title = track.name;
 
         col.append(clipsWrap, name);
-        this.ui.viz.appendChild(col);
+        tracksWrap.appendChild(col);
         this.vizBoxes.set(track, boxes);
       }
+
+      const links = [];
+      for (const track of tracks) links.push(...matrixLinks('inter', track.inter, true));
+      links.sort((a, b) => a.thickness - b.thickness);
+
+      for (const link of links) {
+        if (!this.clipEls.has(link.fromId) || !this.clipEls.has(link.toId)) continue;
+        const path = document.createElementNS(SVG_NS, 'path');
+        path.setAttribute('class', 'ps-edge is-inter');
+        path.setAttribute('opacity', String(link.opacity));
+        const title = document.createElementNS(SVG_NS, 'title');
+        title.textContent = `${link.fromId} → ${link.toId} ×${formatWeight(link.weight)}`;
+        path.appendChild(title);
+        svg.appendChild(path);
+        this.edgeEls.push({ ...link, el: path });
+      }
+
+      this.ensureVizObserver();
+    }
+
+    ensureVizObserver() {
+      if (this._vizObserver || typeof ResizeObserver === 'undefined' || !this.ui?.vizStage) return;
+      this._vizObserver = new ResizeObserver(() => this.layoutEdges());
+      this._vizObserver.observe(this.ui.vizStage);
     }
 
     setVizVisible(show) {
-      if (this.ui?.viz) this.ui.viz.hidden = !show;
+      if (!this.ui?.viz) return;
+      this.ui.viz.hidden = !show;
+      if (show) requestAnimationFrame(() => this.layoutEdges());
     }
 
     clearViz() {
-      if (!this.vizBoxes) return;
-      for (const boxes of this.vizBoxes.values()) {
-        boxes.forEach((box) => box.classList.remove('is-current', 'is-muted'));
+      if (this.vizBoxes) {
+        for (const boxes of this.vizBoxes.values()) {
+          boxes.forEach((box) => box.classList.remove('is-current', 'is-muted'));
+        }
+      }
+      if (!this.edgeEls) return;
+      for (const edge of this.edgeEls) {
+        edge.el.classList.remove('is-live');
+        edge.el.setAttribute('opacity', String(edge.opacity));
       }
     }
 
@@ -1557,15 +1828,66 @@
     // blue when the current selection is muted (silent but still selected).
     renderViz() {
       if (!this.vizBoxes) return;
+      const current = new Set();
       for (const [track, boxes] of this.vizBoxes) {
         const slot = this.engine?.state.find((item) => item.track === track);
         const chosenId = slot?.chosen ? slot.chosenId : null;
         const muted = slot?.muted ?? true;
+        if (chosenId) current.add(chosenId);
         track.clips.forEach((clip, i) => {
-          const current = chosenId != null && clip.id === chosenId;
-          boxes[i].classList.toggle('is-current', current);
-          boxes[i].classList.toggle('is-muted', current && muted);
+          const on = chosenId != null && clip.id === chosenId;
+          boxes[i].classList.toggle('is-current', on);
+          boxes[i].classList.toggle('is-muted', on && muted);
         });
+      }
+      this.paintEdges(current);
+    }
+
+    paintEdges(current) {
+      if (!this.edgeEls) return;
+      for (const edge of this.edgeEls) {
+        const live = current.has(edge.fromId) && current.has(edge.toId);
+        edge.el.classList.toggle('is-live', live);
+        edge.el.setAttribute('opacity', live ? '0.9' : String(edge.opacity));
+      }
+    }
+
+    layoutEdges() {
+      const stage = this.ui?.vizStage;
+      const svg = this.ui?.vizEdges;
+      if (!stage || !svg || !this.edgeEls?.length || !this.clipEls || this.ui.viz?.hidden) return;
+      const origin = stage.getBoundingClientRect();
+      if (origin.width < 2 || origin.height < 2) return;
+      svg.setAttribute('viewBox', `0 0 ${origin.width} ${origin.height}`);
+
+      const boxes = new Map();
+      for (const [id, el] of this.clipEls) {
+        const rect = el.getBoundingClientRect();
+        boxes.set(id, {
+          x: rect.left - origin.left,
+          y: rect.top - origin.top,
+          w: rect.width,
+          h: rect.height,
+        });
+      }
+
+      const inter = this.edgeEls;
+
+      for (const [id, edges] of groupBy(inter, (edge) => edge.fromId)) {
+        edges.sort((a, b) => clipCenterY(boxes, a.toId) - clipCenterY(boxes, b.toId));
+        placePorts(edges, boxes.get(id), 'right');
+      }
+      for (const [id, edges] of groupBy(inter, (edge) => edge.toId)) {
+        edges.sort((a, b) => clipCenterY(boxes, a.fromId) - clipCenterY(boxes, b.fromId));
+        placePorts(edges, boxes.get(id), 'left');
+      }
+
+      for (const edge of inter) {
+        if (edge.x1 == null || edge.x2 == null) {
+          edge.el.setAttribute('d', '');
+          continue;
+        }
+        edge.el.setAttribute('d', ribbonPath(edge.x1, edge.y1, edge.x2, edge.y2, edge.t1, edge.t2));
       }
     }
   }
