@@ -9,8 +9,9 @@ Normative schedule fixture for [SPECIFICATION.md](../../SPECIFICATION.md) §19.
 
 ```text
 node scripts/check-golden.mjs
+python players/python/procsong.py --check
 ```
 
 Use `--write` only when intentionally regenerating `expected-t0.json` after a deliberate fixture change.
 
-Audio files are not required for this schedule check: both players expose a pure engine/`Trace` path over the parsed definition.
+Audio files are not required for this schedule check: the players expose a pure engine path over the parsed definition.

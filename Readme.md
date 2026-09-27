@@ -33,6 +33,7 @@ If two players disagree on what plays, the spec is right; the player is wrong.
 
 - **Web** — open [`players/web/index.html`](players/web/index.html) in a browser. Load a library, pick a song, set a seed, press Play.
 - **Unity** — Package Manager → **Add package from git URL…** → `https://github.com/michaeldowd2/procsong.git?path=/players/unity`. Add **Procsong Player**, copy the song zip into `Assets` as `.bytes`, and assign it. See [`players/unity/Documentation~/README.md`](players/unity/Documentation~/README.md).
+- **Python** — `python players/python/procsong.py song.zip --seed 12345`, or pass a public zip URL (Dropbox share links work). Prints each start and plays it. No extra Python packages. Optional YouTube Live output needs `ffmpeg`. See [`players/python/README.md`](players/python/README.md).
 
 ## Package shape
 
@@ -56,4 +57,5 @@ The normative golden schedule is [`fixtures/golden/`](fixtures/golden/). Same de
 
 ```text
 node scripts/check-golden.mjs
+python players/python/procsong.py --check
 ```

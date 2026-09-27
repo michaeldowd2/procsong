@@ -900,6 +900,7 @@ Verify with:
 
 ```text
 node scripts/check-golden.mjs
+python players/python/procsong.py --check
 ```
 
 Unity: load the same `definition.yml`, seed `12345`, and compare Log Schedule / Dump First Evaluations against `expected-t0.json`.
