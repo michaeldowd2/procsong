@@ -20,6 +20,9 @@ definitions:
   Weight:
     type: number
     minimum: 0
+    description: >-
+      Finite non-negative number. Infinity and NaN are invalid (enforced by
+      players; JSON Schema draft 7 cannot exclude them portably).
 
   ClipId:
     type: string
@@ -32,7 +35,7 @@ definitions:
   TrackName:
     type: string
     minLength: 1
-    pattern: "^[^/]+$"
+    pattern: "^[^/\\s]([^/]*[^/\\s])?$"
 
   Clip:
     type: object
@@ -44,9 +47,11 @@ definitions:
       path:
         type: string
         minLength: 1
+        pattern: "^\\S(.*\\S)?$"
         description: >-
           Audio package path/string. Used only for file lookup and ChosenClip.
-          Must not appear as a matrix column or row key.
+          Must not appear as a matrix column or row key. No leading/trailing
+          whitespace.
       weight:
         allOf:
           - $ref: "#/definitions/Weight"

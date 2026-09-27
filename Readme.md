@@ -8,14 +8,14 @@ The piece has **no fixed loop and no shared bar**. Each track has its own start 
 
 ## How sequencing works
 
-Full rules: [`SPECIFICATION.md`](SPECIFICATION.md). Short version:
+Full rules: [`SPECIFICATION.md`](SPECIFICATION.md) (v2.0.0). Short version:
 
 1. **Time is integer seconds** starting at `t = 0`. There is no global tempo grid.
-2. Each track starts a clip every `part_duration` seconds (rounded to an integer ≥ 1). The wav is usually *longer* than that interval, so tails overlap. The interval is when the *next* clip may start, not how long the file is.
+2. Each track starts a clip every `clip_length` seconds (rounded to an integer ≥ 1). The wav is usually *longer* than that interval, so tails overlap. The interval is when the *next* clip may start, not how long the file is.
 3. A track does **not** pick a new clip on every start. It keeps the same choice for `repeats` starts, then **evaluates** again (new clip and mute flag). `repeats` may be fractional: `2.4` on a 10-second track is two full starts plus 4 seconds of a third, so tracks of different lengths can be authored to finish a cycle together.
-4. At any given second, due tracks run in a fixed order: all **primary**, then **secondary**, then **standard** (and YAML order within each type). Later tracks in that same second see the new choices of earlier tracks.
-5. Evaluation uses **one** shared PRNG for the whole song (not one per track). Each evaluation draws two numbers: pick a part, then maybe mute. Retriggers do not draw.
-6. **Mute is volume, not “no part.”** A muted track still has a chosen part. Other tracks that filter on drums/organ still see that choice.
+4. At any given second, due tracks evaluate in **YAML declaration order** (top to bottom). Later tracks in that same second see the new choices of earlier tracks.
+5. Evaluation uses **one** shared PRNG for the whole song (not one per track). Each evaluation draws two numbers: pick a part, then maybe mute. Retriggers do not draw. Candidate weights are `base × intragroup × intergroup` (see the spec for the two distinct matrices).
+6. **Mute is volume, not “no part.”** A muted track still has a chosen clip. Downstream inter-group matrices still see that choice.
 
 If two players disagree on what plays, the spec is right; the player is wrong.
 
@@ -39,12 +39,21 @@ If two players disagree on what plays, the spec is right; the player is wrong.
 See [`schema.yaml`](schema.yaml) and the “How to make a procsong” notes in the web player. Minimal track:
 
 ```yaml
-Drums:
-  type: primary
-  part_duration: 8
-  repeats: 4
-  probability_silence: 0
-  parts:
-    - Drums/A.wav
-    - Drums/B.wav
+format_version: 2.0.0
+tracks:
+  - name: Drums
+    clip_length: 8
+    repeats: 4
+    silence_probability: 0
+    clips:
+      - {id: d1, path: "Drums/A.wav", weight: 1}
+      - {id: d2, path: "Drums/B.wav", weight: 1}
+```
+
+## Conformance
+
+The normative golden schedule is [`fixtures/golden/`](fixtures/golden/). Same definition + seed `12345` → same `t = 0` events in [`expected-t0.json`](fixtures/golden/expected-t0.json).
+
+```text
+node scripts/check-golden.mjs
 ```

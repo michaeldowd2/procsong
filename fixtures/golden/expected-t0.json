@@ -1,0 +1,26 @@
+[
+  {
+    "t": 0,
+    "track": "Drums",
+    "ChosenClip": "Drums/A.wav",
+    "Muted": false,
+    "PlaySeconds": 10,
+    "CropAudio": false
+  },
+  {
+    "t": 0,
+    "track": "Bass",
+    "ChosenClip": "Bass/A.wav",
+    "Muted": false,
+    "PlaySeconds": 10,
+    "CropAudio": false
+  },
+  {
+    "t": 0,
+    "track": "Lead",
+    "ChosenClip": "Lead/A.wav",
+    "Muted": false,
+    "PlaySeconds": 8,
+    "CropAudio": false
+  }
+]

@@ -3,7 +3,7 @@
 **Version:** 2.0.0  
 **Status:** Major-version matrix specification
 
-This document is the normative definition of sequencing for a version 2 procsong. Given the same package and 64-bit seed, compliant players **MUST** produce the same schedule of start time, track, chosen clip, and mute flag.
+This document is the normative definition of sequencing for a version 2 procsong. Given the same package and 64-bit seed, compliant players **MUST** produce the same schedule of start time, track, chosen clip, mute flag, play seconds, and crop flag.
 
 The key words **MUST**, **MUST NOT**, **SHOULD**, and **MAY** are used as in RFC 2119.
 
@@ -128,19 +128,79 @@ This is intentionally close to the spreadsheet representation and is the canonic
 
 ## 3. Package
 
-A package **MUST** contain:
+A package is a zip archive. After discarding ignored entries (below), it **MUST** contain:
 
-- `definition.yml` matching `schema.yaml`;
-- audio files referenced by the clip `path` fields.
+- exactly one `definition.yml` matching `schema.yaml` and §17;
+- exactly one resolvable audio file for every clip `path` (see §3.2).
 
-The root YAML is:
+Ignored zip entries (not counted toward the rules above):
+
+- any path containing a `__MACOSX` segment (case-insensitive);
+- any leaf name that is `.DS_Store` or begins with `._`.
+
+### 3.1 Exactly one definition
+
+Among remaining entries, an entry is a definition candidate when its leaf name equals `definition.yml` under Unicode case-folding (case-insensitive ASCII is sufficient).
+
+- Zero candidates → reject the package.
+- Two or more candidates → reject the package.
+- Exactly one candidate → that file is the definition.
+
+Players **MUST NOT** pick “shallowest” or otherwise break ties: multiplicity is an error.
+
+The definition root **MUST** be:
 
 ```yaml
 format_version: 2.0.0
 tracks: ...
 ```
 
-`path` is the normative chosen-clip string emitted by the scheduler. File lookup may ignore case or a single extension. Matrix `columns` and row keys use clip `id`s only; they **MUST NOT** use `path` values or filenames.
+Only the keys `format_version` and `tracks` are permitted on the root. Unknown keys **MUST** be rejected.
+
+### 3.2 Audio path resolution (`ClipKey`)
+
+`path` is the normative `ChosenClip` string emitted by the scheduler. It is taken exactly from the YAML scalar (no case change, no extension stripping on the emitted schedule).
+
+File lookup uses a derived key:
+
+```text
+ClipKey(path):
+  s = path with every "\" replaced by "/"
+  if s contains a "." in the final path segment:
+    s = s without the final "." and everything after it
+  return ASCII-lowercase(s)
+```
+
+Rules:
+
+1. Every non-ignored zip entry other than the definition is keyed by `ClipKey(relativePathFromDefinitionDirectory)`.
+2. If two entries produce the same `ClipKey`, the package **MUST** be rejected.
+3. For each clip `path` in the definition, `ClipKey(path)` **MUST** match exactly one keyed entry. Missing or undecodable audio **MUST** reject package load. Players **MUST NOT** advance a schedule while silently omitting missing clips.
+4. Matrix `columns` and row keys use clip `id`s only; they **MUST NOT** use `path` values or filenames.
+
+### 3.3 Definition YAML dialect
+
+`definition.yml` **MUST** be UTF-8 (optional leading BOM, which parsers strip). It **MUST** use only this YAML subset:
+
+| Allowed | Forbidden |
+| :--- | :--- |
+| One document (no `---`-separated multi-doc streams) | Anchors, aliases, tags (`!!`), merge keys (`<<`) |
+| Block and flow mappings / sequences | Custom types, binary nodes, timestamps-as-dates |
+| Scalars that become JSON-compatible types after load | Duplicate keys in any mapping |
+
+After load, every value **MUST** be one of: mapping, sequence, string, finite number, boolean, or null. Duplicate mapping keys **MUST** be rejected (not overwritten).
+
+Scalar typing for fields is normative:
+
+| Field kind | Required JSON type after load |
+| :--- | :--- |
+| `format_version`, track `name`, clip `id`, clip `path`, matrix column entries, matrix row keys | string |
+| `clip_length`, `repeats`, `silence_probability`, `weight`, matrix cell values | finite number (not bool, not null unless optional-and-omitted) |
+| `tracks`, `clips`, `columns`, matrix row arrays | sequence |
+
+Unquoted YAML that parses as a non-string (for example `id: 1` → number, `weight: true` → bool) **MUST** be rejected for fields that require a string or finite number respectively. Authors **MUST** quote when needed so the loaded type matches the table.
+
+Omitted optional fields use their defaults (`weight` → `1`, `silence_probability` → `0`, matrices absent → all modifiers `1`). Present-but-null for a required or numeric field **MUST** be rejected.
 
 ---
 
@@ -164,13 +224,15 @@ Fields:
 
 | Field | Required | Meaning |
 | :--- | :---: | :--- |
-| `name` | yes | Unique track/group name. |
-| `clip_length` | yes | Start-to-start interval in seconds; not the WAV duration. |
-| `repeats` | yes | How many times one evaluated choice is started before this track reevaluates. **MUST** be a finite number `> 0`. Need not be an integer: the last start of a non-integer cycle is a partial start (see §12). |
-| `silence_probability` | no | Probability that the evaluated choice is silent. Default `0`. |
+| `name` | yes | Unique track/group name. String; no `/`; no leading/trailing whitespace. |
+| `clip_length` | yes | Start-to-start interval in seconds; not the WAV duration. Finite number `≥ 0`. |
+| `repeats` | yes | How many times one evaluated choice is started before this track reevaluates. **MUST** be a finite number `> 0`. Need not be an integer: the last start of a non-integer cycle is a partial start (see §12). Values in `(0, 1)` mean every pulse evaluates and only a partial start is emitted. |
+| `silence_probability` | no | Probability that the evaluated choice is silent. Finite number in `[0, 1]`. Default `0`. |
 | `clips` | yes | Candidate clips in deterministic declaration order. |
 | `intragroup_subsequent_weight_modifiers` | no | Same-group previous-to-next matrix. |
 | `intergroup_consecutive_weight_modifiers` | no | Cross-group current-context matrix. |
+
+Only the fields in this table are permitted on a track. Unknown keys **MUST** be rejected.
 
 Tracks **MUST** have unique names. The top-to-bottom `tracks` order is significant.
 
@@ -188,11 +250,13 @@ Fields:
 
 | Field | Required | Meaning |
 | :--- | :---: | :--- |
-| `id` | yes | Identifier unique across the whole definition. Used as matrix column headers and row keys. |
-| `path` | yes | Audio package path/string; becomes `ChosenClip`. Never used as a matrix axis. |
-| `weight` | no | Base selection weight. Default `1`. |
+| `id` | yes | Identifier unique across the whole definition. Used as matrix column headers and row keys. **MUST** match `^[A-Za-z0-9_.-]+$`. |
+| `path` | yes | Audio package path/string; becomes `ChosenClip`. Non-empty string with no leading/trailing whitespace. Never used as a matrix axis. |
+| `weight` | no | Base selection weight. Finite number `≥ 0`. Default `1`. `Infinity` / `NaN` **MUST** be rejected. |
 
-Clip IDs **MUST** be unique across the whole definition. `weight` and all matrix values **MUST** be non-negative.
+Only the fields in this table are permitted on a clip. Unknown keys **MUST** be rejected.
+
+Clip IDs **MUST** be unique across the whole definition. Every matrix cell **MUST** be a finite number `≥ 0`.
 
 Clip declaration order is the deterministic weighted-selection walk order.
 
@@ -289,20 +353,32 @@ Each row belongs to one candidate clip in the downstream group, keyed by that ca
 
 A downstream track may reference only tracks declared **earlier** in the top-level `tracks` list. Column entries are those earlier tracks' clip `id`s.
 
-If an upstream track is represented in `columns`, then:
+`columns` **MUST** be exactly the concatenation of one contiguous block per represented upstream track:
 
-1. **all** clip IDs from that upstream track **MUST** appear exactly once;
-2. they **MUST** appear in that upstream track's clip declaration order;
-3. represented upstream tracks **MUST** appear in top-level track declaration order.
+```text
+columns = concat(clip_ids(U) for each represented upstream track U
+                 in top-level track declaration order)
+```
+
+where `clip_ids(U)` is U's clip `id`s in clip declaration order.
+
+Therefore:
+
+1. **all** clip IDs from each represented upstream track appear exactly once;
+2. they appear as a **contiguous** block in that upstream track's clip declaration order;
+3. represented upstream tracks appear in top-level track declaration order;
+4. interleaving clips from different upstream tracks (for example `[c1, d1, c2, d2]`) **MUST** be rejected.
 
 An earlier track that has no influence may simply be absent from the columns; that entire upstream track is then neutral `1`.
+
+Matrix objects may only contain the keys `columns` and `rows`. Unknown keys **MUST** be rejected.
 
 ### 7.2 Row rules
 
 If the matrix is present:
 
 1. `rows` **MUST** contain exactly one row for every clip in the downstream group;
-2. row keys are downstream candidate clip IDs;
+2. row keys are downstream candidate clip IDs (same `id` pattern as §5);
 3. each row array length **MUST** equal `columns.length`.
 
 This keeps the representation rectangular like the CSV matrix.
@@ -407,6 +483,8 @@ target = R_part × W
 
 Walk clips in declaration order and choose the first clip whose cumulative effective weight is strictly greater than `target`.
 
+Because `next_float` is always in `[0, 1)`, `target < W` whenever `W` is finite and positive. If floating-point summation still leaves no clip with `running > target`, the player **MUST** select the **last** clip in declaration order whose `EffectiveWeight > 0`. A compliant implementation **MUST NOT** leave `ChosenClipId` as `none` when `W > 0`.
+
 Then:
 
 ```text
@@ -416,6 +494,8 @@ Muted = R_silence < silence_probability
 The comparison is strict `<`.
 
 Mute changes audio only. It **MUST NOT** clear `ChosenClipId` or `ChosenClip` because downstream inter-group matrices must continue to see the selection.
+
+The sentinel `none` means “no clip”. In dumps and APIs it **MUST NOT** be encoded as an empty string path; use a null/absent value.
 
 ---
 
@@ -492,13 +572,22 @@ Evaluate(T):
 
   target = R_part × total
   running = 0
+  selected = false
 
   for (C, w) in weighted:
     running += w
     if running > target:
       T.ChosenClipId = C.id
       T.ChosenClip = C.path
+      selected = true
       break
+
+  if selected is false:
+    for (C, w) in weighted in reverse declaration order:
+      if w > 0:
+        T.ChosenClipId = C.id
+        T.ChosenClip = C.path
+        break
 
   T.Muted = (R_silence < T.silence_probability)
 ```
@@ -574,7 +663,7 @@ Pulse(T, t):
 
   T.NextStart = t + T.PlaySeconds
 
-  emit:
+  emit schedule event:
     t
     T.name
     T.ChosenClip
@@ -582,6 +671,8 @@ Pulse(T, t):
     T.PlaySeconds
     T.CropAudio
 ```
+
+Those six fields are the normative schedule. Given the same package and seed, compliant players **MUST** agree on every field of every emitted event. Audio rendering (§15) may still differ.
 
 `repeats` therefore counts starts, including the start on the evaluation pulse. A non-integer value means the cycle is `FullRepeats` full starts plus one partial start. Retriggers and the fractional last start do not consume PRNG draws.
 
@@ -626,11 +717,33 @@ state = (state * A + C) mod 2^64
 next_float = uint32(state >> 32) / 4294967296.0
 ```
 
-Initial state:
+`next_float` is therefore always in `[0, 1)`.
+
+### 14.1 Seed input
+
+The seed supplied to a player is a Unicode string. Parse it as follows:
 
 ```text
-seed & 0xFFFFFFFFFFFFFFFF
+ParseSeed(text):
+  s = text with leading and trailing Unicode whitespace removed
+      (if text is null/absent, treat as "")
+
+  if s is empty:
+    return 12345
+
+  if s does not match the regular expression ^[+-]?[0-9]+$ :
+    reject
+
+  n = signed integer value of s in base 10 (arbitrary magnitude)
+  return n modulo 2^64 as an unsigned 64-bit integer
+       (negative values wrap in two's-complement fashion)
 ```
+
+Normative consequences:
+
+- Decimal digits only. Hex (`0x…`), floats, underscores, and scientific notation **MUST** be rejected.
+- Empty or whitespace-only input **MUST** become `12345` (not an error).
+- Initial LCG state is exactly `ParseSeed(text)` (already reduced to 64 bits).
 
 Only evaluations consume draws, exactly two per evaluation, in scheduler order.
 
@@ -644,7 +757,9 @@ On a full start (`CropAudio` is false), players **MUST** start the entire refere
 
 On a partial start (`CropAudio` is true), players **MUST** start the referenced audio file at the scheduled time and **MUST** stop it after `PlaySeconds` (or at the file's natural end if shorter). That stop is the only case in which a start is cropped.
 
-Audio resampling, mixing, and short click-prevention fades may differ between players, but schedule fields may not.
+Because §3.2 rejects packages with missing or undecodable clips at load time, a running player always has audio bytes for every `ChosenClip`.
+
+Audio resampling, mixing, sample-accurate stop alignment, and short click-prevention fades may differ between players. Schedule fields (§12 emit list) may not.
 
 ---
 
@@ -712,21 +827,25 @@ This is the recommended authoring representation because the YAML visually remai
 
 ## 17. Structural and semantic validation
 
-`schema.yaml` validates the basic YAML structure. A compliant validator/player **MUST** additionally check cross-reference rules that JSON Schema draft 7 cannot fully express:
+`schema.yaml` validates the basic YAML structure. A compliant validator/player **MUST** additionally check cross-reference and typing rules that JSON Schema draft 7 cannot fully express:
 
-1. track names are unique;
-2. clip IDs are unique across the whole definition;
-3. intra `columns` exactly equal that track's clip IDs in clip declaration order;
-4. intra `rows` contain exactly those same clip IDs;
-5. every intra row length equals intra column count;
-6. inter row keys exactly equal the downstream track's clip IDs;
-7. every inter row length equals inter column count;
-8. every inter column is a clip `id` that resolves to a clip on an earlier track;
-9. no inter column references a clip on the same track or a later track;
-10. if an upstream track appears in inter columns, every clip from it appears exactly once, in clip declaration order;
-11. represented upstream tracks appear in top-level track declaration order.
+1. root and nested objects contain no unknown keys (§3.1, §4, §5, §7.1);
+2. scalar JSON types match §3.3 (strings where required; finite numbers where required; never bool-as-number);
+3. track names are unique, non-empty, contain no `/`, and have no leading/trailing whitespace;
+4. clip IDs are unique across the whole definition and match `^[A-Za-z0-9_.-]+$`;
+5. clip `path` values are non-empty strings with no leading/trailing whitespace;
+6. every weight, matrix cell, `clip_length`, `repeats`, and `silence_probability` is finite and in range;
+7. intra `columns` exactly equal that track's clip IDs in clip declaration order;
+8. intra `rows` contain exactly those same clip IDs;
+9. every intra row length equals intra column count;
+10. inter row keys exactly equal the downstream track's clip IDs;
+11. every inter row length equals inter column count;
+12. inter `columns` equal the concatenation of complete upstream clip-id blocks in track declaration order (§7.1) — contiguous, no interleaving;
+13. every inter column is a clip `id` that resolves to a clip on an earlier track;
+14. no inter column references a clip on the same track or a later track;
+15. package zip rules in §3–§3.2 (exactly one definition; unique ClipKeys; every path resolves and decodes).
 
-Invalid matrices **MUST** be rejected rather than padded, truncated, reordered, or silently defaulted.
+Invalid input **MUST** be rejected rather than padded, truncated, reordered, type-coerced, or silently defaulted.
 
 ---
 
@@ -753,21 +872,39 @@ intergroup_consecutive_weight_modifiers:
 
 The supplied version-1 song did not define same-group transition preferences, so its faithful migration omits `intragroup_subsequent_weight_modifiers`; omission means all intra-group modifiers are neutral `1`.
 
+Historical note: an earlier draft of this section used a private migrated package whose `t = 0` picks were Drums/`Drums/Drums 1`, Organ/`Organ/Organ 4`, Bass/`Bass/Bass 2`, Lead/`Lead/Mellotron 4`, Percussion/`Percussion/Percussion 2` (muted). That package is not shipped here. The normative golden fixture is §19.
+
 ---
 
-## 19. Golden test for the migrated supplied song
+## 19. Golden test (in-repo fixture)
 
-Using the rewritten `definition.yml` and seed `12345`, the `t = 0` evaluations **MUST** yield:
+Compliant players **MUST** match `fixtures/golden/` for seed `12345`.
 
-| Order | Track | ChosenClip | Muted |
-| :--- | :--- | :--- | :--- |
-| 1 | Drums | `Drums/Drums 1` | no |
-| 2 | Organ | `Organ/Organ 4` | no |
-| 3 | Bass | `Bass/Bass 2` | no |
-| 4 | Lead | `Lead/Mellotron 4` | no |
-| 5 | Percussion | `Percussion/Percussion 2` | yes |
+Authoritative files:
 
-This confirms that converting the supplied binary allow-lists into `0/1` inter-group matrices preserves the initial deterministic behaviour.
+| File | Role |
+| :--- | :--- |
+| `fixtures/golden/definition.yml` | Song definition |
+| `fixtures/golden/expected-t0.json` | Expected `t = 0` schedule events (all six fields) |
+| `scripts/check-golden.mjs` | Regenerates/verifies `expected-t0.json` against the web engine |
+
+At `t = 0`, with seed `12345`, the evaluations **MUST** yield:
+
+| Order | Track | ChosenClip | Muted | PlaySeconds | CropAudio |
+| :--- | :--- | :--- | :---: | ---: | :---: |
+| 1 | Drums | `Drums/A.wav` | no | 10 | no |
+| 2 | Bass | `Bass/A.wav` | no | 10 | no |
+| 3 | Lead | `Lead/A.wav` | no | 8 | no |
+
+Verify with:
+
+```text
+node scripts/check-golden.mjs
+```
+
+Unity: load the same `definition.yml`, seed `12345`, and compare Log Schedule / Dump First Evaluations against `expected-t0.json`.
+
+This fixture exercises declaration-order evaluation, an inter-group matrix, fractional `repeats` on Bass (tail later, not at `t = 0`), and weighted Lead selection.
 
 ---
 
@@ -775,17 +912,21 @@ This confirms that converting the supplied binary allow-lists into `0/1` inter-g
 
 A version 2 implementation is compliant if it:
 
-1. accepts `format_version: 2.0.0`;
-2. treats each track as one clip group;
-3. processes tracks in YAML declaration order;
-4. preserves clip declaration order;
-5. uses `intragroup_subsequent_weight_modifiers` only for this group's previous-selection → next-candidate weighting;
-6. uses `intergroup_consecutive_weight_modifiers` only for other groups' current-selection → downstream-candidate weighting;
-7. interprets `columns` and one-line `rows` exactly as the matrix headers and cells defined above;
-8. multiplies base, intra, and current inter-group factors;
-9. uses one shared LCG with exactly two draws per evaluation;
-10. leaves muted selections visible as current selections to downstream groups;
-11. keeps independent track clocks and consumes no random draws on retriggers or on a fractional last start;
-12. treats non-integer `repeats` as `floor(repeats)` full starts plus one cropped partial start;
-13. rejects invalid matrix dimensions/references;
-14. matches the golden test in section 19.
+1. accepts `format_version: 2.0.0` and rejects unknown definition keys;
+2. parses `definition.yml` under the §3.3 YAML dialect and scalar-type rules;
+3. enforces §3 package rules (exactly one definition; ClipKey uniqueness; fail on missing audio);
+4. treats each track as one clip group;
+5. processes tracks in YAML declaration order;
+6. preserves clip declaration order;
+7. uses `intragroup_subsequent_weight_modifiers` only for this group's previous-selection → next-candidate weighting;
+8. uses `intergroup_consecutive_weight_modifiers` only for other groups' current-selection → downstream-candidate weighting;
+9. requires contiguous concatenated upstream blocks in inter `columns` (§7.1);
+10. multiplies base, intra, and current inter-group factors;
+11. uses one shared LCG with `ParseSeed` (§14.1) and exactly two draws per evaluation;
+12. applies the §9 / §11 selection walk, including the last-positive-weight fallback;
+13. leaves muted selections visible as current selections to downstream groups;
+14. keeps independent track clocks and consumes no random draws on retriggers or on a fractional last start;
+15. treats non-integer `repeats` as `floor(repeats)` full starts plus one cropped partial start;
+16. rejects invalid matrix dimensions/references and out-of-range non-finite numbers;
+17. emits and matches all six schedule fields (§12);
+18. matches the golden test in section 19.

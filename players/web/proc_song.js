@@ -664,7 +664,7 @@
   // ---------------------------------------------------------------------------
   class ProcsongRNG {
     constructor(seed) {
-      this.state = BigInt(seed) & 0xFFFFFFFFFFFFFFFFn;
+      this.state = typeof seed === 'bigint' ? seed & 0xFFFFFFFFFFFFFFFFn : BigInt(seed) & 0xFFFFFFFFFFFFFFFFn;
     }
 
     nextFloat() {
@@ -672,6 +672,43 @@
         (this.state * 6364136223846793005n + 1442695040888963407n) & 0xFFFFFFFFFFFFFFFFn;
       return Number(this.state >> 32n) / 4294967296.0;
     }
+  }
+
+  // spec §14.1
+  const SEED_RE = /^[+-]?[0-9]+$/;
+  function parseSeed(text) {
+    const s = text == null ? '' : String(text).replace(/^\s+|\s+$/g, '');
+    if (!s) return 12345n;
+    if (!SEED_RE.test(s)) throw new Error('Seed must be a decimal integer');
+    return BigInt(s) & 0xFFFFFFFFFFFFFFFFn;
+  }
+
+  const CLIP_ID_RE = /^[A-Za-z0-9_.-]+$/;
+
+  function rejectUnknownKeys(obj, allowed, where) {
+    for (const key of Object.keys(obj)) {
+      if (!allowed.has(key)) {
+        throw new Error(`${where} has unknown key "${key}"`);
+      }
+    }
+  }
+
+  function requireString(value, where) {
+    if (typeof value !== 'string') {
+      throw new Error(`${where} must be a string (got ${JSON.stringify(value)})`);
+    }
+    if (value.trim() !== value || !value) {
+      throw new Error(`${where} must be a non-empty string without leading/trailing whitespace`);
+    }
+    return value;
+  }
+
+  function requireClipId(value, where) {
+    const id = requireString(value, where);
+    if (!CLIP_ID_RE.test(id)) {
+      throw new Error(`${where} must match ^[A-Za-z0-9_.-]+$ (got ${JSON.stringify(id)})`);
+    }
+    return id;
   }
 
   // spec §12: AtLeastOne
@@ -692,20 +729,43 @@
 
   function parseWeight(value, context) {
     if (value == null) return 1;
-    const num = Number(value);
-    if (!Number.isFinite(num) || num < 0) {
-      throw new Error(`${context} must be a non-negative number (got ${JSON.stringify(value)})`);
+    if (typeof value === 'boolean') {
+      throw new Error(`${context} must be a non-negative finite number (got boolean)`);
     }
+    const num = Number(value);
+    if (typeof value === 'string' && value.trim() !== '' && !Number.isFinite(num)) {
+      throw new Error(`${context} must be a non-negative finite number (got ${JSON.stringify(value)})`);
+    }
+    if (typeof value !== 'number' && typeof value !== 'string') {
+      throw new Error(`${context} must be a non-negative finite number (got ${JSON.stringify(value)})`);
+    }
+    if (!Number.isFinite(num) || num < 0) {
+      throw new Error(`${context} must be a non-negative finite number (got ${JSON.stringify(value)})`);
+    }
+    return num;
+  }
+
+  function requireFiniteNumber(value, context, { min = -Infinity, max = Infinity, exclusiveMin = false } = {}) {
+    if (typeof value === 'boolean' || value == null || Array.isArray(value) || isPlainObject(value)) {
+      throw new Error(`${context} must be a finite number (got ${JSON.stringify(value)})`);
+    }
+    const num = Number(value);
+    if (!Number.isFinite(num)) {
+      throw new Error(`${context} must be a finite number (got ${JSON.stringify(value)})`);
+    }
+    if (exclusiveMin ? num <= min : num < min) {
+      throw new Error(`${context} out of range`);
+    }
+    if (num > max) throw new Error(`${context} out of range`);
     return num;
   }
 
   function parseClip(entry, trackName, index) {
     const where = `Track "${trackName}" clip #${index + 1}`;
     if (!isPlainObject(entry)) throw new Error(`${where} must be a mapping with id and path`);
-    const id = entry.id;
-    const path = entry.path;
-    if (typeof id !== 'string' || !id.trim()) throw new Error(`${where} is missing a string id`);
-    if (typeof path !== 'string' || !path.trim()) throw new Error(`${where} (${id}) is missing a string path`);
+    rejectUnknownKeys(entry, new Set(['id', 'path', 'weight']), where);
+    const id = requireClipId(entry.id, `${where} id`);
+    const path = requireString(entry.path, `${where} (${id}) path`);
     return {
       id,
       path,
@@ -719,21 +779,18 @@
     if (raw == null) return null;
     const where = `Track "${trackName}" ${kind}`;
     if (!isPlainObject(raw)) throw new Error(`${where} must be a mapping with columns and rows`);
+    rejectUnknownKeys(raw, new Set(['columns', 'rows']), where);
     if (!Array.isArray(raw.columns)) throw new Error(`${where} is missing a columns array`);
     if (!isPlainObject(raw.rows)) throw new Error(`${where} is missing a rows mapping`);
 
-    const columns = raw.columns.map((col, i) => {
-      if (typeof col !== 'string' || !col.trim()) {
-        throw new Error(`${where} column #${i + 1} must be a clip id string`);
-      }
-      return col;
-    });
+    const columns = raw.columns.map((col, i) => requireClipId(col, `${where} column #${i + 1}`));
     if (new Set(columns).size !== columns.length) {
       throw new Error(`${where} columns must be unique clip ids`);
     }
 
     const rows = {};
     for (const [rowKey, values] of Object.entries(raw.rows)) {
+      requireClipId(rowKey, `${where} row key`);
       if (!Array.isArray(values)) throw new Error(`${where} row "${rowKey}" must be an array`);
       rows[rowKey] = values.map((v, i) => parseWeight(v, `${where} row "${rowKey}" cell #${i + 1}`));
     }
@@ -743,29 +800,36 @@
   function parseTrack(spec, index) {
     const where = `Track #${index + 1}`;
     if (!isPlainObject(spec)) throw new Error(`${where} must be a mapping`);
-    const name = spec.name;
-    if (typeof name !== 'string' || !name.trim()) throw new Error(`${where} is missing a string name`);
+    rejectUnknownKeys(
+      spec,
+      new Set([
+        'name',
+        'clip_length',
+        'repeats',
+        'silence_probability',
+        'clips',
+        'intragroup_subsequent_weight_modifiers',
+        'intergroup_consecutive_weight_modifiers',
+      ]),
+      where,
+    );
+    const name = requireString(spec.name, `${where} name`);
     if (name.includes('/')) throw new Error(`Track "${name}" name must not contain "/"`);
 
     if (spec.clip_length == null) throw new Error(`Track "${name}" is missing clip_length`);
-    const clipLengthNum = Number(spec.clip_length);
-    if (!Number.isFinite(clipLengthNum) || clipLengthNum < 0) {
-      throw new Error(`Track "${name}" clip_length must be a non-negative number`);
-    }
+    const clipLengthNum = requireFiniteNumber(spec.clip_length, `Track "${name}" clip_length`, { min: 0 });
 
-    const repeats = Number(spec.repeats);
-    if (!Number.isFinite(repeats) || repeats <= 0) {
-      throw new Error(`Track "${name}" repeats must be a number > 0`);
-    }
+    const repeats = requireFiniteNumber(spec.repeats, `Track "${name}" repeats`, { min: 0, exclusiveMin: true });
     const fullRepeats = Math.floor(repeats);
     const tailFraction = repeats - fullRepeats;
 
     let silenceProbability = 0;
     if (spec.silence_probability != null) {
-      silenceProbability = Number(spec.silence_probability);
-      if (!Number.isFinite(silenceProbability) || silenceProbability < 0 || silenceProbability > 1) {
-        throw new Error(`Track "${name}" silence_probability must be between 0 and 1`);
-      }
+      silenceProbability = requireFiniteNumber(
+        spec.silence_probability,
+        `Track "${name}" silence_probability`,
+        { min: 0, max: 1 },
+      );
     }
 
     if (!Array.isArray(spec.clips) || !spec.clips.length) {
@@ -776,7 +840,7 @@
     return {
       name,
       declIndex: index,
-      loopSeconds: atLeastOne(spec.clip_length),
+      loopSeconds: atLeastOne(clipLengthNum),
       repeats,
       fullRepeats,
       tailFraction,
@@ -857,7 +921,8 @@
           }
         }
 
-        // 8/9. every column resolves to a clip on an EARLIER track
+        // 8–14. inter columns = concat of contiguous upstream clip-id blocks
+        //     in track declaration order (spec §7.1).
         const repOrder = [];
         const seenTracks = new Set();
         for (const col of m.columns) {
@@ -874,23 +939,20 @@
           }
         }
 
-        // 11. represented upstream tracks appear in top-level declaration order
         for (let i = 1; i < repOrder.length; i += 1) {
           if (repOrder[i].declIndex <= repOrder[i - 1].declIndex) {
             throw new Error(`Track "${track.name}" inter columns must list upstream tracks in declaration order`);
           }
         }
 
-        // 10. each represented upstream track contributes all its clip ids
-        //     exactly once, in that track's clip declaration order.
+        const expected = [];
         for (const upstream of repOrder) {
-          const upstreamIds = upstream.clips.map((c) => c.id);
-          const colsForUpstream = m.columns.filter((col) => clipOwner.get(col) === upstream);
-          if (!arraysEqual(colsForUpstream, upstreamIds)) {
-            throw new Error(
-              `Track "${track.name}" inter columns for upstream track "${upstream.name}" must be all of its clip ids in declaration order`,
-            );
-          }
+          for (const clip of upstream.clips) expected.push(clip.id);
+        }
+        if (!arraysEqual(m.columns, expected)) {
+          throw new Error(
+            `Track "${track.name}" inter columns must be the concatenation of each upstream track's clip ids in declaration order (contiguous blocks, no interleaving)`,
+          );
         }
       }
     }
@@ -899,9 +961,15 @@
   }
 
   function parseDefinition(yamlText) {
-    const raw = jsyaml.load(yamlText.replace(/^\uFEFF/, ''));
+    let raw;
+    try {
+      raw = jsyaml.load(yamlText.replace(/^\uFEFF/, ''), { schema: jsyaml.DEFAULT_SCHEMA, uniqueKeys: true });
+    } catch (err) {
+      throw new Error(`definition.yml YAML error: ${err.message || err}`);
+    }
     if (!isPlainObject(raw)) throw new Error('definition.yml did not contain a mapping');
-    if (String(raw.format_version) !== FORMAT_VERSION) {
+    rejectUnknownKeys(raw, new Set(['format_version', 'tracks']), 'definition.yml');
+    if (typeof raw.format_version !== 'string' || raw.format_version !== FORMAT_VERSION) {
       throw new Error(`Unsupported format_version "${raw.format_version}" (expected ${FORMAT_VERSION})`);
     }
     if (!Array.isArray(raw.tracks) || !raw.tracks.length) {
@@ -1004,6 +1072,16 @@
             chosenId = clips[i].id;
             chosen = clips[i].path;
             break;
+          }
+        }
+        // spec §9 / §11 — FP fallback: last clip with EffectiveWeight > 0
+        if (chosenId == null) {
+          for (let i = clips.length - 1; i >= 0; i -= 1) {
+            if (weights[i] > 0) {
+              chosenId = clips[i].id;
+              chosen = clips[i].path;
+              break;
+            }
           }
         }
       }
@@ -1124,32 +1202,58 @@
     return bytes.buffer;
   }
 
-  // spec §3 — file lookup may ignore case or a single extension.
+  // spec §3.2 — ClipKey
   function clipKey(path) {
     return path.replace(/\\/g, '/').replace(/\.[^/.]+$/, '').toLowerCase();
+  }
+
+  function shouldSkipZipPath(name) {
+    const n = name.replace(/\\/g, '/');
+    if (n.toLowerCase().includes('__macosx')) return true;
+    const leaf = n.slice(n.lastIndexOf('/') + 1);
+    return leaf === '.DS_Store' || leaf.startsWith('._');
+  }
+
+  function isDefinitionPath(path) {
+    const leaf = path.slice(path.lastIndexOf('/') + 1);
+    return leaf.toLowerCase() === 'definition.yml';
   }
 
   async function unpackSongZip(buffer, onFile) {
     const zip = await JSZip.loadAsync(buffer);
     const files = Object.entries(zip.files)
       .filter(([, file]) => !file.dir)
-      .map(([name, file]) => ({ name: name.replace(/\\/g, '/'), file }));
+      .map(([name, file]) => ({ name: name.replace(/\\/g, '/'), file }))
+      .filter((entry) => !shouldSkipZipPath(entry.name));
 
-    const defs = files.map((entry) => entry.name).filter((path) => path.endsWith('definition.yml'));
+    const defs = files.filter((entry) => isDefinitionPath(entry.name));
     if (!defs.length) throw new Error('Zip does not contain definition.yml');
-    defs.sort((a, b) => a.split('/').length - b.split('/').length || a.length - b.length);
-    const defPath = defs[0];
+    if (defs.length > 1) {
+      throw new Error(`Zip contains ${defs.length} definition.yml files; exactly one is required`);
+    }
+    const defPath = defs[0].name;
     const root = defPath.slice(0, defPath.lastIndexOf('/') + 1);
 
-    const definition = files.find((entry) => entry.name === defPath);
-    const tracks = parseDefinition(await definition.file.async('string'));
+    const tracks = parseDefinition(await defs[0].file.async('string'));
     const clipBytes = new Map();
     const clips = files.filter((entry) => entry.name !== defPath);
     for (let i = 0; i < clips.length; i += 1) {
+      if (root && !clips[i].name.startsWith(root)) continue;
       const relative = clips[i].name.slice(root.length);
       if (!relative) continue;
-      clipBytes.set(clipKey(relative), await clips[i].file.async('uint8array'));
+      const key = clipKey(relative);
+      if (clipBytes.has(key)) {
+        throw new Error(`Zip contains duplicate audio key "${key}" after ClipKey normalization`);
+      }
+      clipBytes.set(key, await clips[i].file.async('uint8array'));
       onFile(i + 1, clips.length);
+    }
+
+    const needed = new Set(tracks.flatMap((track) => track.clips.map((clip) => clipKey(clip.path))));
+    for (const key of needed) {
+      if (!clipBytes.has(key)) {
+        throw new Error(`Package is missing audio for clip path key "${key}"`);
+      }
     }
     return { tracks, clipBytes };
   }
@@ -1657,11 +1761,7 @@
     }
 
     seedValue() {
-      try {
-        return BigInt((this.ui.seed?.value || this.seed || '12345').trim() || '12345');
-      } catch (_) {
-        throw new Error('Seed must be an integer');
-      }
+      return parseSeed(this.ui.seed?.value || this.seed || '');
     }
 
     ensureContext() {
@@ -1719,15 +1819,24 @@
       this.setBar('loading');
       this.setStatus(`Decoding audio… 0/${missing.length}`);
       let done = 0;
+      const errors = [];
       await Promise.all(missing.map(async (path) => {
         const bytes = this.pkg.clipBytes.get(clipKey(path));
-        if (!bytes) return;
-        const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
-        const buffer = await ctx.decodeAudioData(copy);
-        this.buffers.set(path, buffer);
+        if (!bytes) {
+          errors.push(`missing audio for "${path}"`);
+          return;
+        }
+        try {
+          const copy = bytes.buffer.slice(bytes.byteOffset, bytes.byteOffset + bytes.byteLength);
+          const buffer = await ctx.decodeAudioData(copy);
+          this.buffers.set(path, buffer);
+        } catch (err) {
+          errors.push(`could not decode "${path}": ${err.message || err}`);
+        }
         done += 1;
         this.setStatus(`Decoding audio… ${done}/${missing.length}`);
       }));
+      if (errors.length) throw new Error(errors[0]);
       if (paths.every((path) => this.buffers.has(path))) this.pkg.clipBytes = null;
       this.setStatus('');
     }
@@ -2021,6 +2130,6 @@
 
   // Expose internals for headless testing / conformance checks (spec §19).
   if (typeof module !== 'undefined' && module.exports) {
-    module.exports = { ProcsongPlayer, ProcsongEngine, ProcsongRNG, parseDefinition, validateDefinition, atLeastOne };
+    module.exports = { ProcsongPlayer, ProcsongEngine, ProcsongRNG, parseDefinition, validateDefinition, atLeastOne, parseSeed };
   }
 })(typeof window !== 'undefined' ? window : this);

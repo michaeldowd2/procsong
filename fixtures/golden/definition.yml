@@ -1,0 +1,33 @@
+format_version: 2.0.0
+tracks:
+  - name: Drums
+    clip_length: 10
+    repeats: 2
+    silence_probability: 0
+    clips:
+      - {id: d1, path: "Drums/A.wav", weight: 1}
+      - {id: d2, path: "Drums/B.wav", weight: 1}
+    intragroup_subsequent_weight_modifiers:
+      columns: [d1, d2]
+      rows:
+        d1: [1, 0]
+        d2: [0, 1]
+  - name: Bass
+    clip_length: 10
+    repeats: 2.4
+    silence_probability: 0.5
+    clips:
+      - {id: b1, path: "Bass/A.wav", weight: 1}
+      - {id: b2, path: "Bass/B.wav", weight: 1}
+    intergroup_consecutive_weight_modifiers:
+      columns: [d1, d2]
+      rows:
+        b1: [1, 0]
+        b2: [0, 1]
+  - name: Lead
+    clip_length: 8
+    repeats: 3
+    silence_probability: 0
+    clips:
+      - {id: l1, path: "Lead/A.wav", weight: 2}
+      - {id: l2, path: "Lead/B.wav", weight: 1}

@@ -248,10 +248,7 @@ namespace Procsong
             {
                 byte[] wav;
                 if (!bytes.TryGetValue(key, out wav) || wav == null)
-                {
-                    Debug.LogWarning("ProcsongPlayer: missing clip '" + key + "'", this);
-                    continue;
-                }
+                    throw new InvalidOperationException("Package is missing audio for clip path key \"" + key + "\"");
                 try
                 {
                     _clips[key] = Wav.ToAudioClip(wav, key);
@@ -259,7 +256,7 @@ namespace Procsong
                 }
                 catch (Exception ex)
                 {
-                    Debug.LogWarning("ProcsongPlayer: could not decode '" + key + "': " + ex.Message, this);
+                    throw new InvalidOperationException("Could not decode '" + key + "': " + ex.Message, ex);
                 }
             }
 
@@ -284,23 +281,20 @@ namespace Procsong
             var files = Zip.Read(zip);
             string defPath = null;
             byte[] defBytes = null;
-            int bestDepth = int.MaxValue;
-            int bestLen = int.MaxValue;
+            int defCount = 0;
             foreach (var pair in files)
             {
                 string name = pair.Key.Replace('\\', '/');
-                if (!name.EndsWith("definition.yml", StringComparison.OrdinalIgnoreCase)) continue;
-                int depth = Depth(name);
-                if (depth < bestDepth || (depth == bestDepth && name.Length < bestLen))
-                {
-                    bestDepth = depth;
-                    bestLen = name.Length;
-                    defPath = name;
-                    defBytes = pair.Value;
-                }
+                if (ShouldSkipPath(name)) continue;
+                if (!IsDefinitionPath(name)) continue;
+                defCount++;
+                defPath = name;
+                defBytes = pair.Value;
             }
-            if (defPath == null || defBytes == null)
+            if (defCount == 0 || defPath == null || defBytes == null)
                 throw new InvalidOperationException("Zip does not contain definition.yml");
+            if (defCount > 1)
+                throw new InvalidOperationException("Zip contains " + defCount + " definition.yml files; exactly one is required");
 
             yaml = Encoding.UTF8.GetString(defBytes).TrimStart('\uFEFF');
             int slash = defPath.LastIndexOf('/');
@@ -310,12 +304,24 @@ namespace Procsong
             {
                 string name = pair.Key.Replace('\\', '/');
                 if (string.Equals(name, defPath, StringComparison.OrdinalIgnoreCase)) continue;
+                if (ShouldSkipPath(name)) continue;
                 if (!string.IsNullOrEmpty(root) && (name.Length < root.Length || string.CompareOrdinal(name, 0, root, 0, root.Length) != 0))
                     continue;
                 string relative = name.Substring(root.Length);
-                if (relative.Length == 0 || ShouldSkipPath(relative)) continue;
-                clips[ClipKey(relative)] = pair.Value;
+                if (relative.Length == 0) continue;
+                string key = ClipKey(relative);
+                if (clips.ContainsKey(key))
+                    throw new InvalidOperationException("Zip contains duplicate audio key \"" + key + "\" after ClipKey normalization");
+                clips[key] = pair.Value;
             }
+        }
+
+        static bool IsDefinitionPath(string path)
+        {
+            string n = path.Replace('\\', '/');
+            int slash = n.LastIndexOf('/');
+            string leaf = slash < 0 ? n : n.Substring(slash + 1);
+            return string.Equals(leaf, "definition.yml", StringComparison.OrdinalIgnoreCase);
         }
 
         void UnloadClips()
@@ -339,16 +345,6 @@ namespace Procsong
             int slash = n.LastIndexOf('/');
             string leaf = slash < 0 ? n : n.Substring(slash + 1);
             return leaf == ".DS_Store" || leaf.StartsWith("._");
-        }
-
-        static int Depth(string path)
-        {
-            int n = 0;
-            for (int i = 0; i < path.Length; i++)
-            {
-                if (path[i] == '/' || path[i] == '\\') n++;
-            }
-            return n;
         }
 
         static string ClipKey(string path)

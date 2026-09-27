@@ -24,7 +24,7 @@ Same zip + same seed as the web player → same chosen clips, mute flags, and in
 
 In one sentence: each track starts clips on its own interval; it reuses a choice for `repeats` starts (a non-integer value crops the last start); evaluations use one shared PRNG in YAML track declaration order; mute does not clear the chosen clip.
 
-Turn on **Log Schedule** to print the first evaluations (compare with the spec golden test: seed `12345`).
+Turn on **Log Schedule** to print the first evaluations. Compare seed `12345` against the in-repo golden fixture [`fixtures/golden/expected-t0.json`](../../../fixtures/golden/expected-t0.json) (see [`SPECIFICATION.md`](../../../SPECIFICATION.md) §19). Or use the gear menu → **Dump First 100 Evaluations**.
 
 ## Add it to a scene
 
@@ -53,7 +53,7 @@ Keep one player in the first scene and call `DontDestroyOnLoad` on it if the mus
 | Field | What it does |
 | :--- | :--- |
 | Song Package | The procsong zip renamed to `.bytes` |
-| Seed | Integer. Same package + seed always produces the same arrangement |
+| Seed | Decimal integer string (§14.1). Empty → `12345`. Same package + seed always produces the same arrangement |
 | Volume | Master gain |
 | Spatial Blend | `0` is 2D (normal for music). Raise it if the object should be a 3D emitter |
 | Log Schedule | Prints the first evaluations to the Console |

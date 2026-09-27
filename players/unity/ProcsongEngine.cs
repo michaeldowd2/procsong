@@ -30,10 +30,26 @@ namespace Procsong
 
         public static ulong ParseSeed(string text)
         {
-            if (string.IsNullOrWhiteSpace(text)) return 12345UL;
+            // Spec §14.1
+            string s = text == null ? "" : text.Trim();
+            if (s.Length == 0) return 12345UL;
+            if (s[0] == '+') s = s.Substring(1);
+            bool negative = false;
+            if (s.Length > 0 && s[0] == '-')
+            {
+                negative = true;
+                s = s.Substring(1);
+            }
+            if (s.Length == 0) throw new ArgumentException("Seed must be a decimal integer");
+            for (int i = 0; i < s.Length; i++)
+            {
+                if (s[i] < '0' || s[i] > '9')
+                    throw new ArgumentException("Seed must be a decimal integer");
+            }
             BigInteger n;
-            if (!BigInteger.TryParse(text.Trim(), NumberStyles.Integer, CultureInfo.InvariantCulture, out n))
-                throw new ArgumentException("Seed must be an integer");
+            if (!BigInteger.TryParse(s, NumberStyles.None, CultureInfo.InvariantCulture, out n))
+                throw new ArgumentException("Seed must be a decimal integer");
+            if (negative) n = -n;
             return unchecked((ulong)(n & ulong.MaxValue));
         }
     }
@@ -272,6 +288,7 @@ namespace Procsong
             {
                 double target = pulse.RPart * total;
                 double running = 0;
+                bool selected = false;
                 for (int i = 0; i < clips.Count; i++)
                 {
                     running += weights[i];
@@ -279,7 +296,21 @@ namespace Procsong
                     {
                         pulse.ChosenId = clips[i].Id;
                         pulse.Chosen = clips[i].Path;
+                        selected = true;
                         break;
+                    }
+                }
+                // Spec §9 / §11 — FP fallback: last clip with EffectiveWeight > 0
+                if (!selected)
+                {
+                    for (int i = clips.Count - 1; i >= 0; i--)
+                    {
+                        if (weights[i] > 0)
+                        {
+                            pulse.ChosenId = clips[i].Id;
+                            pulse.Chosen = clips[i].Path;
+                            break;
+                        }
                     }
                 }
             }
@@ -300,8 +331,12 @@ namespace Procsong
             object raw = MiniYaml.Parse(yamlText);
             var root = raw as YMap;
             if (root == null) throw new ArgumentException("definition.yml did not contain a mapping");
+            RejectUnknownKeys(root, new[] { "format_version", "tracks" }, "definition.yml");
 
-            string version = AsString(root.Get("format_version"));
+            object versionNode = root.Get("format_version");
+            if (!(versionNode is string))
+                throw new ArgumentException("format_version must be a string");
+            string version = (string)versionNode;
             if (version != FormatVersion)
             {
                 throw new ArgumentException(
@@ -325,27 +360,27 @@ namespace Procsong
             string where = "Track #" + (index + 1);
             var spec = raw as YMap;
             if (spec == null) throw new ArgumentException(where + " must be a mapping");
+            RejectUnknownKeys(spec, new[]
+            {
+                "name", "clip_length", "repeats", "silence_probability", "clips",
+                "intragroup_subsequent_weight_modifiers", "intergroup_consecutive_weight_modifiers"
+            }, where);
 
-            string name = AsString(spec.Get("name"));
-            if (string.IsNullOrEmpty(name)) throw new ArgumentException(where + " is missing a string name");
+            string name = RequireString(spec.Get("name"), where + " name");
             if (name.IndexOf('/') >= 0) throw new ArgumentException("Track \"" + name + "\" name must not contain \"/\"");
 
             if (spec.Get("clip_length") == null)
                 throw new ArgumentException("Track \"" + name + "\" is missing clip_length");
-            double clipLength = AsNumber(spec.Get("clip_length"), double.NaN);
-            if (double.IsNaN(clipLength) || clipLength < 0)
-                throw new ArgumentException("Track \"" + name + "\" clip_length must be a non-negative number");
+            double clipLength = RequireFiniteNumber(spec.Get("clip_length"), "Track \"" + name + "\" clip_length", 0, false, double.PositiveInfinity);
 
-            double repeats = RequirePositiveNumber(spec.Get("repeats"), "Track \"" + name + "\" repeats");
+            double repeats = RequireFiniteNumber(spec.Get("repeats"), "Track \"" + name + "\" repeats", 0, true, double.PositiveInfinity);
             int fullRepeats = (int)Math.Floor(repeats);
             double tailFraction = repeats - fullRepeats;
 
             double silence = 0;
             if (spec.Get("silence_probability") != null)
             {
-                silence = AsNumber(spec.Get("silence_probability"), double.NaN);
-                if (double.IsNaN(silence) || silence < 0 || silence > 1)
-                    throw new ArgumentException("Track \"" + name + "\" silence_probability must be between 0 and 1");
+                silence = RequireFiniteNumber(spec.Get("silence_probability"), "Track \"" + name + "\" silence_probability", 0, false, 1);
             }
 
             var clipList = spec.Get("clips") as List<object>;
@@ -380,10 +415,10 @@ namespace Procsong
             }
             var map = entry as YMap;
             if (map == null) throw new ArgumentException(where + " must be a mapping with id and path");
+            RejectUnknownKeys(map, new[] { "id", "path", "weight" }, where);
 
-            string id = RequireId(map.Get("id"), where + " is missing a string id");
-            string path = AsString(map.Get("path"));
-            if (string.IsNullOrEmpty(path)) throw new ArgumentException(where + " (" + id + ") is missing a string path");
+            string id = RequireClipId(map.Get("id"), where + " id");
+            string path = RequireString(map.Get("path"), where + " (" + id + ") path");
 
             return new ProcsongClip
             {
@@ -399,6 +434,7 @@ namespace Procsong
             string where = "Track \"" + trackName + "\" " + kind;
             var map = raw as YMap;
             if (map == null) throw new ArgumentException(where + " must be a mapping with columns and rows");
+            RejectUnknownKeys(map, new[] { "columns", "rows" }, where);
 
             var colNode = map.Get("columns") as List<object>;
             if (colNode == null) throw new ArgumentException(where + " is missing a columns array");
@@ -409,7 +445,7 @@ namespace Procsong
             var seen = new HashSet<string>();
             for (int i = 0; i < colNode.Count; i++)
             {
-                string id = RequireId(colNode[i], where + " column #" + (i + 1) + " must be a clip id string");
+                string id = RequireClipId(colNode[i], where + " column #" + (i + 1));
                 if (!seen.Add(id)) throw new ArgumentException(where + " columns must be unique clip ids");
                 columns.Add(id);
             }
@@ -417,7 +453,7 @@ namespace Procsong
             var rows = new Dictionary<string, double[]>();
             for (int r = 0; r < rowNode.Count; r++)
             {
-                string rowKey = rowNode.Keys[r];
+                string rowKey = RequireClipId(rowNode.Keys[r], where + " row key");
                 var values = rowNode.Values[r] as List<object>;
                 if (values == null) throw new ArgumentException(where + " row \"" + rowKey + "\" must be an array");
                 var cells = new double[values.Count];
@@ -509,23 +545,17 @@ namespace Procsong
                             throw new ArgumentException("Track \"" + track.Name + "\" inter columns must list upstream tracks in declaration order");
                     }
 
+                    var expected = new List<string>();
                     for (int u = 0; u < repOrder.Count; u++)
                     {
-                        var upstream = repOrder[u];
-                        var upstreamIds = ClipIds(upstream);
-                        var colsForUpstream = new List<string>();
-                        for (int c = 0; c < m.Columns.Count; c++)
-                        {
-                            ProcsongTrack owner;
-                            if (clipOwner.TryGetValue(m.Columns[c], out owner) && owner == upstream)
-                                colsForUpstream.Add(m.Columns[c]);
-                        }
-                        if (!ArraysEqual(colsForUpstream, upstreamIds))
-                        {
-                            throw new ArgumentException(
-                                "Track \"" + track.Name + "\" inter columns for upstream track \"" + upstream.Name +
-                                "\" must be all of its clip ids in declaration order");
-                        }
+                        var upstreamIds = ClipIds(repOrder[u]);
+                        for (int i = 0; i < upstreamIds.Count; i++)
+                            expected.Add(upstreamIds[i]);
+                    }
+                    if (!ArraysEqual(m.Columns, expected))
+                    {
+                        throw new ArgumentException(
+                            "Track \"" + track.Name + "\" inter columns must be the concatenation of each upstream track's clip ids in declaration order (contiguous blocks, no interleaving)");
                     }
                 }
             }
@@ -568,47 +598,82 @@ namespace Procsong
             return true;
         }
 
-        static string RequireId(object node, string message)
+        static string RequireString(object node, string where)
         {
-            if (node == null || node is bool)
-                throw new ArgumentException(message);
-            string id = Convert.ToString(node, CultureInfo.InvariantCulture);
-            if (string.IsNullOrEmpty(id)) throw new ArgumentException(message);
+            if (!(node is string))
+                throw new ArgumentException(where + " must be a string (got " + DescribeType(node) + ")");
+            string s = (string)node;
+            if (s.Length == 0 || s.Trim() != s)
+                throw new ArgumentException(where + " must be a non-empty string without leading/trailing whitespace");
+            return s;
+        }
+
+        static string RequireClipId(object node, string where)
+        {
+            string id = RequireString(node, where);
+            for (int i = 0; i < id.Length; i++)
+            {
+                char c = id[i];
+                bool ok = (c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')
+                    || c == '_' || c == '.' || c == '-';
+                if (!ok)
+                    throw new ArgumentException(where + " must match ^[A-Za-z0-9_.-]+$ (got \"" + id + "\")");
+            }
             return id;
         }
 
-        static double RequirePositiveNumber(object node, string context)
+        static double RequireFiniteNumber(object node, string context, double min, bool exclusiveMin, double max)
         {
-            double n = AsNumber(node, double.NaN);
-            if (double.IsNaN(n) || double.IsInfinity(n) || n <= 0)
-                throw new ArgumentException(context + " must be a number > 0");
+            if (node is bool || node == null || node is YMap || node is List<object>)
+                throw new ArgumentException(context + " must be a finite number");
+            double n;
+            if (node is double)
+            {
+                n = (double)node;
+            }
+            else if (node is string)
+            {
+                if (!double.TryParse((string)node, NumberStyles.Float, CultureInfo.InvariantCulture, out n))
+                    throw new ArgumentException(context + " must be a finite number");
+            }
+            else
+            {
+                throw new ArgumentException(context + " must be a finite number");
+            }
+            if (double.IsNaN(n) || double.IsInfinity(n))
+                throw new ArgumentException(context + " must be a finite number");
+            if (exclusiveMin ? n <= min : n < min)
+                throw new ArgumentException(context + " out of range");
+            if (n > max)
+                throw new ArgumentException(context + " out of range");
             return n;
         }
 
         static double ParseWeight(object node, string context)
         {
             if (node == null) return 1;
-            double n = AsNumber(node, double.NaN);
-            if (double.IsNaN(n) || n < 0)
-                throw new ArgumentException(context + " must be a non-negative number");
-            return n;
+            return RequireFiniteNumber(node, context, 0, false, double.PositiveInfinity);
         }
 
-        static string AsString(object node)
+        static void RejectUnknownKeys(YMap map, string[] allowed, string where)
         {
-            if (node == null || node is bool) return null;
-            return Convert.ToString(node, CultureInfo.InvariantCulture);
+            var set = new HashSet<string>(allowed);
+            for (int i = 0; i < map.Count; i++)
+            {
+                if (!set.Contains(map.Keys[i]))
+                    throw new ArgumentException(where + " has unknown key \"" + map.Keys[i] + "\"");
+            }
         }
 
-        static double AsNumber(object node, double fallback)
+        static string DescribeType(object node)
         {
-            if (node == null) return fallback;
-            if (node is double) return (double)node;
-            if (node is bool) return fallback;
-            double n;
-            if (double.TryParse(Convert.ToString(node, CultureInfo.InvariantCulture), NumberStyles.Float, CultureInfo.InvariantCulture, out n))
-                return n;
-            return fallback;
+            if (node == null) return "null";
+            if (node is bool) return "boolean";
+            if (node is double) return "number";
+            if (node is string) return "string";
+            if (node is YMap) return "mapping";
+            if (node is List<object>) return "sequence";
+            return node.GetType().Name;
         }
 
         #region Minimal YAML (maps, lists, scalars — enough for definition.yml)
@@ -620,12 +685,8 @@ namespace Procsong
             public int Count { get { return Keys.Count; } }
             public void Add(string key, object value)
             {
-                int i = Keys.IndexOf(key);
-                if (i >= 0)
-                {
-                    Values[i] = value;
-                    return;
-                }
+                if (Keys.IndexOf(key) >= 0)
+                    throw new ArgumentException("Duplicate YAML key \"" + key + "\"");
                 Keys.Add(key);
                 Values.Add(value);
             }

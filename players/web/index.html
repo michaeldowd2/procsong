@@ -6,22 +6,17 @@
   <title>Procsong v2 — infinite procedural music</title>
   <meta name="description" content="An infinite, clip-based procedural music format (version 2). Load a library, pick a song, bookmark the page, and share it with anyone, anywhere.">
   <meta name="theme-color" content="#e4b45a">
-  <link rel="canonical" href="https://michaeldowd2.github.io/procsong/players/web_v2/">
+  <link rel="canonical" href="https://michaeldowd2.github.io/procsong/players/web/">
 
   <meta property="og:type" content="website">
-  <meta property="og:site_name" content="Procsong">
+  <meta property="og:site_name" content="Procsong Web Player">
   <meta property="og:title" content="Procsong v2 — infinite procedural music">
   <meta property="og:description" content="Clip-based music that keeps going. Create procsongs, load a library, bookmark the link, and share it with anyone, anywhere.">
-  <meta property="og:image" content="https://michaeldowd2.github.io/procsong/players/web_v2/og.png?v=2">
-  <meta property="og:image:type" content="image/png">
-  <meta property="og:image:width" content="1200">
-  <meta property="og:image:height" content="630">
   <meta property="og:image:alt" content="Procsong — infinite clip-based procedural music">
 
-  <meta name="twitter:card" content="summary_large_image">
+  <meta name="twitter:card" content="summary">
   <meta name="twitter:title" content="Procsong v2 — infinite procedural music">
   <meta name="twitter:description" content="Clip-based music that keeps going. Create procsongs, load a library, bookmark the link, and share it with anyone, anywhere.">
-  <meta name="twitter:image" content="https://michaeldowd2.github.io/procsong/players/web_v2/og.png?v=2">
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=Monoton&family=Source+Sans+3:wght@400;600&display=swap" rel="stylesheet">
@@ -291,22 +286,21 @@
   </style>
 </head>
 <body>
-  <h1>Procsong<span class="version-badge">v2</span></h1>
+  <h1>Web Player<span class="version-badge">v2</span></h1>
   <p class="lede">
-    An infinite, clip-based procedural music format.
+    A web player for the Procsong music arrangements and libraries.
     <a href="#help-procsong">Create some procsongs</a>,
     <a href="#help-library">create a library</a>,
     <a href="#libraryUrl">load it below</a>,
-    then bookmark the link to listen — or share it with others to enjoy your infinite music creations.
+    then bookmark the link to share it with others to enjoy your infinite music creations.
   </p>
   <ul class="uses">
-    <li>Party backgrounds</li>
+    <li>Background music</li>
     <li>Shops &amp; cafes</li>
     <li>Study music</li>
-    <li>Games</li>
-    <li>Compositions for dancing</li>
+    <li>Game Music</li>
+    <li>Dance and Instrument Practice</li>
     <li>Art installations</li>
-    <li>Practice companion</li>
   </ul>
 
   <div class="library-tools">
@@ -387,9 +381,13 @@ tracks:
           Tracks do not share a bar: a 12-second track can restart while an 8-second track is still on its first clip.
           Track order matters — tracks evaluate top to bottom, so a later track sees earlier tracks' current clips.
           Mute is volume after a choice — other tracks still see the chosen clip.
+          Seeds are decimal integers (empty defaults to <code>12345</code>). A package zip
+          must contain exactly one <code>definition.yml</code> and every clip <code>path</code>
+          must resolve to audio.
           The exact algorithm (matrices, clocks, evaluation order, shared PRNG) is
-          <a href="../../v2_SPECIFICATION.md">v2_SPECIFICATION.md</a>, validated against
-          <a href="../../v2_schema.yaml">v2_schema.yaml</a>.
+          <a href="../../SPECIFICATION.md">SPECIFICATION.md</a>, validated against
+          <a href="../../schema.yaml">schema.yaml</a>. The in-repo golden fixture is
+          <a href="../../fixtures/golden/">fixtures/golden</a>.
         </p>
       </div>
     </details>
