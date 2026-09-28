@@ -15,9 +15,11 @@ audio, mix, then speakers or YouTube.
 
 from __future__ import annotations
 
+import atexit
 import argparse
 import array
 import ctypes
+import functools
 import io
 import json
 import math
@@ -41,7 +43,7 @@ from pathlib import Path
 FORMAT_VERSION = "2.0.0"
 RATE = 44100
 BLOCK = 2048
-FADE_FRAMES = max(1, int(round(0.008 * RATE)))
+FADE_FRAMES = int(round(0.008 * RATE))
 FADE_Q = 1024
 # 8-bit WAV is unsigned. (sample - 128) << 8 is the signed 16-bit value, and
 # the high byte of that value is sample XOR 0x80.
@@ -61,6 +63,16 @@ YOUTUBE_HEIGHT = 720
 # https://support.google.com/youtube/answer/2853702
 YOUTUBE_VIDEO_BITRATE = "4000k"
 YOUTUBE_AUDIO_BITRATE = "128k"
+# One band across the middle of the still card. x264 recodes the blocks
+# that change and skips the rest, which is what keeps a long stream close
+# to the cost of a motionless picture. Height and Y are even for yuv420.
+SPECTRUM_H = 128
+SPECTRUM_Y = (YOUTUBE_HEIGHT - SPECTRUM_H) // 2
+CARD_BG = (36, 58, 78)
+CARD_INK = (236, 230, 220)
+CARD_DIM = (186, 206, 216)
+CARD_GOLD = (228, 180, 90)
+CHOICE_LOG_LIMIT = 100
 
 
 class ProcsongError(Exception):
@@ -348,7 +360,7 @@ def _parse_inline_map(text: str):
         split = _try_split(item.strip())
         if split:
             key, val = split
-            mapping.add(key, _parse_scalar(val) if val else None)
+            mapping.add(key, _parse_inline(val))
     return mapping
 
 
@@ -629,10 +641,7 @@ def _parse_track(raw, index: int) -> Track:
 
 
 def _same_ids(left, right) -> bool:
-    if len(left) != len(right):
-        return False
-    have = set(left)
-    return all(item in have for item in right)
+    return set(left) == set(right)
 
 
 def _validate(tracks):
@@ -854,6 +863,7 @@ class _Status:
 
     def __init__(self):
         self.shown = False
+        self._width = 0
 
     def __enter__(self):
         return self
@@ -865,7 +875,12 @@ class _Status:
 
     def update(self, message: str):
         self.shown = True
-        print(message, file=sys.stderr, end="\r", flush=True)
+        self._width = max(self._width, len(message))
+        print(message.ljust(self._width), file=sys.stderr, end="\r", flush=True)
+
+
+# Spec ClipKey is ASCII-lowercase, not Unicode casefold.
+_ASCII_LOWER = str.maketrans("ABCDEFGHIJKLMNOPQRSTUVWXYZ", "abcdefghijklmnopqrstuvwxyz")
 
 
 def clip_key(path: str) -> str:
@@ -874,7 +889,7 @@ def clip_key(path: str) -> str:
     dot = text.rfind(".")
     if dot > slash:
         text = text[:dot]
-    return "".join(chr(ord(ch) + 32) if "A" <= ch <= "Z" else ch for ch in text)
+    return text.translate(_ASCII_LOWER)
 
 
 def _skip_zip_path(name: str) -> bool:
@@ -890,16 +905,21 @@ def _is_definition(name: str) -> bool:
     return leaf.lower() == "definition.yml"
 
 
+def _normalize_url(text: str) -> str:
+    text = text.strip()
+    # A pasted link sometimes loses the leading h. The web player repairs that too.
+    if text.lower().startswith("ttps://"):
+        return "h" + text
+    return text
+
+
 def _looks_like_url(text: str) -> bool:
-    lowered = text.strip().lower()
-    return lowered.startswith(("http://", "https://", "ttps://"))
+    return _normalize_url(text).lower().startswith(("http://", "https://"))
 
 
 def direct_download_url(url: str) -> str:
     """Turn a Dropbox share link into a direct file URL. Other URLs pass through."""
-    text = url.strip()
-    if text.lower().startswith("ttps://"):
-        text = "h" + text
+    text = _normalize_url(url)
     parts = urllib.parse.urlsplit(text)
     host = (parts.hostname or "").lower()
     if host != "dropbox.com" and not host.endswith(".dropbox.com"):
@@ -917,13 +937,12 @@ def direct_download_url(url: str) -> str:
 
 
 def _format_bytes(size: int) -> str:
-    if size < 1024:
-        return f"{size} B"
     value = float(size)
-    for unit in ("KB", "MB", "GB"):
+    for unit in ("B", "KB", "MB"):
+        if value < 1024.0:
+            return f"{int(value)} B" if unit == "B" else f"{value:.1f} {unit}"
         value /= 1024.0
-        if value < 1024.0 or unit == "GB":
-            return f"{value:.1f} {unit}"
+    return f"{value:.1f} GB"
 
 
 def _download_zip(url: str) -> bytes:
@@ -966,68 +985,70 @@ def _download_zip(url: str) -> bytes:
 def load_package(source: str):
     source = source.strip()
     if _looks_like_url(source):
-        return _package_from_bytes(_download_zip(source), source)
+        return _read_zip(io.BytesIO(_download_zip(source)), source)
     if not os.path.isfile(source):
         raise ProcsongError(f"package not found: {source}")
-    try:
-        with open(source, "rb") as handle:
-            data = handle.read()
-    except OSError as exc:
-        raise ProcsongError(str(exc)) from exc
-    return _package_from_bytes(data, source)
+    return _read_zip(source, source)
 
 
-def _package_from_bytes(data: bytes, label: str):
+def _read_zip(source, label: str):
     try:
-        archive = zipfile.ZipFile(io.BytesIO(data))
+        archive = zipfile.ZipFile(source)
     except zipfile.BadZipFile as exc:
         raise ProcsongError(f"not a zip file: {label}") from exc
+    except OSError as exc:
+        raise ProcsongError(str(exc)) from exc
     with archive:
-        infos = []
+        files = []
         for info in archive.infolist():
             if info.is_dir():
                 continue
             name = info.filename.replace("\\", "/")
             if not name or name.endswith("/") or _skip_zip_path(name):
                 continue
-            infos.append((name, info))
-        entries = []
-        total = len(infos)
+            files.append((name, info))
+        definitions = [(name, info) for name, info in files if _is_definition(name)]
+        if not definitions:
+            raise ProcsongError("Zip does not contain definition.yml")
+        if len(definitions) > 1:
+            raise ProcsongError(f"Zip contains {len(definitions)} definition.yml files; exactly one is required")
+        def_path, def_info = definitions[0]
+        try:
+            yaml_text = archive.read(def_info).decode("utf-8-sig")
+        except UnicodeDecodeError as exc:
+            raise ProcsongError("definition.yml must be UTF-8") from exc
+        slash = def_path.rfind("/")
+        root = "" if slash < 0 else def_path[:slash + 1]
+        wanted = []
+        for name, info in files:
+            if name.lower() == def_path.lower():
+                continue
+            if root and not name.startswith(root):
+                continue
+            relative = name[len(root):]
+            if relative:
+                wanted.append((relative, info))
+        clips = {}
+        total = len(wanted)
         with _Status() as status:
-            for index, (name, info) in enumerate(infos, 1):
+            for index, (relative, info) in enumerate(wanted, 1):
                 status.update(f"procsong: unpacking {index}/{total}")
-                entries.append((name, archive.read(info)))
-    definitions = [(name, payload) for name, payload in entries if _is_definition(name)]
-    if not definitions:
-        raise ProcsongError("Zip does not contain definition.yml")
-    if len(definitions) > 1:
-        raise ProcsongError(f"Zip contains {len(definitions)} definition.yml files; exactly one is required")
-    def_path, def_bytes = definitions[0]
-    try:
-        yaml_text = def_bytes.decode("utf-8-sig")
-    except UnicodeDecodeError as exc:
-        raise ProcsongError("definition.yml must be UTF-8") from exc
-    slash = def_path.rfind("/")
-    root = "" if slash < 0 else def_path[:slash + 1]
-    clips = {}
-    for name, payload in entries:
-        if name.lower() == def_path.lower():
-            continue
-        if root and not name.startswith(root):
-            continue
-        relative = name[len(root):]
-        if not relative:
-            continue
-        key = clip_key(relative)
-        if key in clips:
-            raise ProcsongError(f'Zip contains duplicate audio key "{key}" after ClipKey normalization')
-        clips[key] = payload
+                key = clip_key(relative)
+                if key in clips:
+                    raise ProcsongError(f'Zip contains duplicate audio key "{key}" after ClipKey normalization')
+                clips[key] = archive.read(info)
     return yaml_text, clips
 
 
 # Clips are interleaved stereo int16 at 44100 Hz. 24-bit and 32-bit integer
 # audio keeps its top 16 bits with slice copies, so a large library does not
 # walk every sample in Python.
+
+
+def _zeros(typecode: str, count: int) -> array.array:
+    out = array.array(typecode)
+    out.frombytes(b"\x00" * (count * out.itemsize))
+    return out
 
 
 def _clamp_i16(value) -> int:
@@ -1047,7 +1068,7 @@ def _i16_from_le(raw) -> array.array:
 
 
 def _float_to_i16(value: float) -> int:
-    if value != value:
+    if math.isnan(value):
         return 0
     return _clamp_i16(value * 32767.0)
 
@@ -1105,7 +1126,7 @@ def _expand_u8(raw: bytes, channels: int) -> array.array:
 def _downmix_pcm(raw: bytes, bits: int, channels: int) -> array.array:
     width = bits // 8
     frames = len(raw) // (width * channels)
-    out = array.array("h", bytes(frames * 4))
+    out = _zeros("h", frames * 2)
     for i in range(frames):
         total = 0
         base = i * channels * width
@@ -1125,7 +1146,7 @@ def _float_to_stereo(data: bytes, offset: int, length: int, bits: int, channels:
     samples.frombytes(data[offset:offset + frames * channels * 4])
     if sys.byteorder != "little":
         samples.byteswap()
-    out = array.array("h", bytes(frames * 4))
+    out = _zeros("h", frames * 2)
     if channels == 1:
         for i in range(frames):
             value = _float_to_i16(samples[i])
@@ -1186,7 +1207,7 @@ def _resample_audioop(stereo: array.array, src_rate: int):
 
 def _resample_linear(stereo: array.array, frames: int, src_rate: int) -> array.array:
     dst_frames = max(1, int(round(frames * RATE / src_rate)))
-    out = array.array("h", bytes(dst_frames * 4))
+    out = _zeros("h", dst_frames * 2)
     if frames == 1:
         out[0] = stereo[0]
         out[1] = stereo[1]
@@ -1276,8 +1297,9 @@ def load_audio(tracks, blobs):
 # Mix
 # ---------------------------------------------------------------------------
 
+@functools.lru_cache(maxsize=None)
 def _fade_curve(length: int) -> array.array:
-    curve = array.array("i", bytes(length * 4))
+    curve = _zeros("i", length)
     if length <= 1:
         if length == 1:
             curve[0] = FADE_Q
@@ -1291,30 +1313,19 @@ def _fade_curve(length: int) -> array.array:
     return curve
 
 
-_FADE_CURVES = {FADE_FRAMES: _fade_curve(FADE_FRAMES)}
-
-
-def _curve_for(length: int) -> array.array:
-    curve = _FADE_CURVES.get(length)
-    if curve is None:
-        curve = _fade_curve(length)
-        _FADE_CURVES[length] = curve
-    return curve
-
-
 class Voice:
-    def __init__(self, data, end: int, delay: int):
+    def __init__(self, data, end: int, offset: int):
         self.data = data
         self.pos = 0
         self.end = end
-        self.delay = delay
+        self.offset = offset
         self.fade = min(FADE_FRAMES, end // 2)
-        self.curve = _curve_for(self.fade) if self.fade > 1 else None
+        self.curve = _fade_curve(self.fade) if self.fade > 1 else None
 
 
 def _mix(acc, voice: Voice, nframes: int):
-    offset = voice.delay
-    voice.delay = 0
+    offset = voice.offset
+    voice.offset = 0
     count = nframes - offset
     remain = voice.end - voice.pos
     if remain < count:
@@ -1347,11 +1358,9 @@ def _mix(acc, voice: Voice, nframes: int):
 
 
 def _to_s16(acc, gain: float) -> bytes:
-    # Samples in the accumulator are int16. Scale into the output range with gain.
-    scale = gain * (32767.0 / 32768.0)
-    out = array.array("h", bytes(len(acc) * 2))
+    out = _zeros("h", len(acc))
     for i, sample in enumerate(acc):
-        out[i] = _clamp_i16(sample * scale)
+        out[i] = _clamp_i16(sample * gain)
     if sys.byteorder != "little":
         out.byteswap()
     return out.tobytes()
@@ -1378,12 +1387,151 @@ def format_row(tick: int, pulses) -> str:
     return f"{format_clock(tick):>9}  " + " | ".join(format_choice(pulse) for pulse in pulses)
 
 
-def play(engine: Engine, audio, sink, gain: float, seconds: float):
+def _fit_columns(text: str, cols: int) -> str:
+    text = text.replace("\t", " ").replace("\n", " ")
+    if len(text) <= cols:
+        return text
+    if cols <= 3:
+        return text[:cols]
+    return text[: cols - 3] + "..."
+
+
+def _console_vt() -> bool:
+    """True when stdout is a terminal that can redraw in place."""
+    try:
+        if not sys.stdout.isatty():
+            return False
+    except Exception:
+        return False
+    if sys.platform != "win32":
+        return True
+    kernel = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel.GetStdHandle.restype = wintypes.HANDLE
+    kernel.GetConsoleMode.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
+    kernel.GetConsoleMode.restype = wintypes.BOOL
+    kernel.SetConsoleMode.argtypes = [wintypes.HANDLE, wintypes.DWORD]
+    kernel.SetConsoleMode.restype = wintypes.BOOL
+    handle = kernel.GetStdHandle(-11)  # STD_OUTPUT_HANDLE
+    mode = wintypes.DWORD()
+    if not kernel.GetConsoleMode(handle, ctypes.byref(mode)):
+        return False
+    enable = 0x0004  # ENABLE_VIRTUAL_TERMINAL_PROCESSING
+    if mode.value & enable:
+        return True
+    return bool(kernel.SetConsoleMode(handle, mode.value | enable))
+
+
+class _ChoiceLog:
+    """Latest choices. A terminal redraws one screen so a long run does not fill scrollback.
+
+    Redirected stdout still appends every line, so a log file keeps the whole schedule.
+    """
+
+    def __init__(self, caption: str):
+        self.caption = caption
+        self.lines = []
+        self.footer = ""
+        self.uses_screen = _console_vt()
+        self._lock = threading.Lock()
+        self._alt = False
+        self._opened = False
+        if self.uses_screen:
+            atexit.register(self.close)
+
+    def note(self, line: str):
+        self._record(line, footer=True)
+
+    def add(self, line: str):
+        self._record(line, footer=False)
+
+    def _record(self, line: str, footer: bool):
+        with self._lock:
+            if not self.uses_screen:
+                print(line, file=sys.stderr if footer else sys.stdout, flush=True)
+                return
+            if footer:
+                self.footer = line
+            else:
+                self.lines.append(line)
+                del self.lines[:-CHOICE_LOG_LIMIT]
+            if self._opened:
+                self._paint()
+
+    def open(self):
+        with self._lock:
+            if not self.uses_screen or self._alt:
+                return
+            self._alt = True
+            self._opened = True
+            # Alternate screen: the shell's scrollback stays where it was.
+            sys.stdout.write("\033[?1049h\033[?25l\033[?7l")
+            sys.stdout.flush()
+            self._paint()
+
+    def close(self):
+        with self._lock:
+            if not self._alt:
+                return
+            self._alt = False
+            self._opened = False
+            snapshot = list(self.lines)
+            sys.stdout.write("\033[?7h\033[?25h\033[?1049l")
+            sys.stdout.flush()
+        try:
+            atexit.unregister(self.close)
+        except Exception:
+            pass
+        # Leave the latest choices in the normal scrollback once playback stops.
+        for line in snapshot:
+            try:
+                print(line, flush=True)
+            except (BrokenPipeError, OSError):
+                return
+
+    def _paint(self):
+        cols, rows = shutil.get_terminal_size(fallback=(80, 24))
+        cols = max(16, cols - 1)  # stay inside the width so the line does not wrap
+        capacity = max(1, rows - 1)
+        header = [
+            _fit_columns(self.caption, cols),
+            _fit_columns(
+                f"Latest {CHOICE_LOG_LIMIT} choices. Repeats are not listed. Ctrl+C to stop.",
+                cols,
+            ),
+            "",
+        ]
+        footer = ["", _fit_columns(self.footer, cols)] if self.footer else []
+        room = max(1, capacity - len(header) - len(footer))
+        visible = self.lines[-min(CHOICE_LOG_LIMIT, room):]
+        block = header + [_fit_columns(line, cols) for line in visible] + footer
+        block = block[:capacity]
+        parts = ["\033[H"]
+        last = len(block) - 1
+        for index, line in enumerate(block):
+            parts.append("\033[2K")
+            parts.append(line)
+            # A newline on the bottom row would scroll and grow scrollback.
+            if index != last:
+                parts.append("\n")
+        parts.append("\033[J")
+        try:
+            sys.stdout.write("".join(parts))
+            sys.stdout.flush()
+        except (BrokenPipeError, OSError):
+            self._opened = False
+            self.uses_screen = False
+
+
+def play(engine: Engine, audio, sink, gain: float, seconds: float, caption: str):
     """Mix the schedule in realtime. New picks that share a second print on one line."""
     limit = max(1, int(seconds * RATE)) if seconds > 0 else 0
     voices = []
     frame = 0
+    log = _ChoiceLog(caption)
+    if isinstance(sink, _PipeSink) and log.uses_screen:
+        sink.on_line = log.note
     try:
+        log.open()
         while limit <= 0 or frame < limit:
             nframes = BLOCK if limit <= 0 else min(BLOCK, limit - frame)
             end = frame + nframes
@@ -1396,7 +1544,7 @@ def play(engine: Engine, audio, sink, gain: float, seconds: float):
                 fresh = [pulse for pulse in due if pulse.evaluated]
                 if fresh:
                     try:
-                        print(format_row(tick, fresh), flush=True)
+                        log.add(format_row(tick, fresh))
                     except BrokenPipeError:
                         return
                 for pulse in due:
@@ -1409,13 +1557,9 @@ def play(engine: Engine, audio, sink, gain: float, seconds: float):
                     if dur <= 0:
                         continue
                     voices.append(Voice(data, dur, tick_frame - frame))
-            acc = array.array("q", bytes(nframes * 16))
+            acc = _zeros("q", nframes * 2)
             alive = []
             for voice in voices:
-                if voice.delay >= nframes:
-                    voice.delay -= nframes
-                    alive.append(voice)
-                    continue
                 _mix(acc, voice, nframes)
                 if voice.pos < voice.end:
                     alive.append(voice)
@@ -1425,6 +1569,7 @@ def play(engine: Engine, audio, sink, gain: float, seconds: float):
     except KeyboardInterrupt:
         return
     finally:
+        log.close()
         sink.close()
 
 
@@ -1443,6 +1588,7 @@ class _PipeSink:
             bufsize=0,
         )
         self._lines = []
+        self.on_line = None
         self._thread = threading.Thread(target=self._drain, daemon=True)
         self._thread.start()
 
@@ -1457,7 +1603,12 @@ class _PipeSink:
             self._lines.append(line)
             if len(self._lines) > 40:
                 del self._lines[:-40]
-            print(f"{self.label}: {line}", file=sys.stderr, flush=True)
+            message = f"{self.label}: {line}"
+            callback = self.on_line
+            if callback is not None:
+                callback(message)
+            else:
+                print(message, file=sys.stderr, flush=True)
 
     def _died(self) -> str:
         tail = "; ".join(self._lines[-8:]) or "no message"
@@ -1492,17 +1643,250 @@ class _PipeSink:
                 pass
 
 
-def _solid_png(width: int, height: int, rgb) -> bytes:
-    # A flat field plus one light bar, so a YouTube preview is obviously a picture
-    # and not a missing video signal. YouTube rejects audio-only ingest.
-    background = bytes(rgb) * width
-    bar = bytes(min(255, channel + 150) for channel in rgb) * width
-    y0 = height // 2 - 8
-    y1 = y0 + 16
-    rows = []
+# 5x7 glyphs, one character per line: the character, a space, then 7 rows of
+# 5 pixels joined by '/'. '#' is ink. Built in so the card needs no font file.
+_GLYPHS = r"""
+A .###./#...#/#...#/#####/#...#/#...#/#...#
+B ####./#...#/#...#/####./#...#/#...#/####.
+C .####/#..../#..../#..../#..../#..../.####
+D ####./#...#/#...#/#...#/#...#/#...#/####.
+E #####/#..../#..../####./#..../#..../#####
+F #####/#..../#..../####./#..../#..../#....
+G .####/#..../#..../#.###/#...#/#...#/.####
+H #...#/#...#/#...#/#####/#...#/#...#/#...#
+I #####/..#../..#../..#../..#../..#../#####
+J ..###/...#./...#./...#./#..#./#..#./.##..
+K #...#/#..#./#.#../##.../#.#../#..#./#...#
+L #..../#..../#..../#..../#..../#..../#####
+M #...#/##.##/#.#.#/#...#/#...#/#...#/#...#
+N #...#/##..#/#.#.#/#..##/#...#/#...#/#...#
+O .###./#...#/#...#/#...#/#...#/#...#/.###.
+P ####./#...#/#...#/####./#..../#..../#....
+Q .###./#...#/#...#/#...#/#.#.#/#..#./.##.#
+R ####./#...#/#...#/####./#.#../#..#./#...#
+S .####/#..../#..../.###./....#/....#/####.
+T #####/..#../..#../..#../..#../..#../..#..
+U #...#/#...#/#...#/#...#/#...#/#...#/.###.
+V #...#/#...#/#...#/#...#/#...#/.#.#./..#..
+W #...#/#...#/#...#/#...#/#.#.#/##.##/#...#
+X #...#/#...#/.#.#./..#../.#.#./#...#/#...#
+Y #...#/#...#/.#.#./..#../..#../..#../..#..
+Z #####/....#/...#./..#../.#.../#..../#####
+0 .###./#...#/#..##/#.#.#/##..#/#...#/.###.
+1 ..#../.##../..#../..#../..#../..#../.###.
+2 .###./#...#/....#/...#./..#../.#.../#####
+3 .###./#...#/....#/..##./....#/#...#/.###.
+4 ...#./..##./.#.#./#..#./#####/...#./...#.
+5 #####/#..../####./....#/....#/#...#/.###.
+6 .###./#..../#..../####./#...#/#...#/.###.
+7 #####/....#/...#./..#../.#.../.#.../.#...
+8 .###./#...#/#...#/.###./#...#/#...#/.###.
+9 .###./#...#/#...#/.####/....#/....#/.###.
+a ...../...../.###./....#/.####/#...#/.####
+b #..../#..../####./#...#/#...#/#...#/####.
+c ...../...../.####/#..../#..../#..../.####
+d ....#/....#/.####/#...#/#...#/#...#/.####
+e ...../...../.###./#...#/#####/#..../.####
+f ..##./.#..#/.#.../###../.#.../.#.../.#...
+g ...../...../.####/#...#/.####/....#/.###.
+h #..../#..../####./#...#/#...#/#...#/#...#
+i ..#../...../.##../..#../..#../..#../.###.
+j ...#./...../..##./...#./...#./#..#./.##..
+k #..../#..../#..#./#.#../##.../#.#../#..#.
+l .#.../.#.../.#.../.#.../.#.../.#..#/..##.
+m ...../...../##.#./#.#.#/#.#.#/#...#/#...#
+n ...../...../####./#...#/#...#/#...#/#...#
+o ...../...../.###./#...#/#...#/#...#/.###.
+p ...../...../####./#...#/####./#..../#....
+q ...../...../.####/#...#/.####/....#/....#
+r ...../...../#.##./##..#/#..../#..../#....
+s ...../...../.####/#..../.###./....#/####.
+t .#.../.#.../###../.#.../.#.../.#..#/..##.
+u ...../...../#...#/#...#/#...#/#..##/.###.
+v ...../...../#...#/#...#/#...#/.#.#./..#..
+w ...../...../#...#/#...#/#.#.#/#.#.#/.#.#.
+x ...../...../#...#/.#.#./..#../.#.#./#...#
+y ...../...../#...#/#...#/.####/....#/.###.
+z ...../...../#####/...#./..#../.#.../#####
+! ..#../..#../..#../..#../..#../...../..#..
+" .#.#./.#.#./.#.#./...../...../...../.....
+# .#.#./#####/.#.#./.#.#./#####/.#.#./.....
+$ ..#../.####/#.#../.###./..#.#/####./..#..
+% ##.../##..#/...#./..#../.#.../#..##/...##
+& .##../#..#./.#.../.#.#./#.#.#/#..#./.##.#
+' ..#../..#../..#../...../...../...../.....
+( ..##./.#.../#..../#..../#..../.#.../..##.
+) .##../...#./....#/....#/....#/...#./.##..
+* ..#../#.#.#/.###./#.#.#/..#../...../.....
++ ...../..#../..#../#####/..#../..#../.....
+, ...../...../...../...../..#../..#../.#...
+- ...../...../...../.###./...../...../.....
+. ...../...../...../...../...../..#../..#..
+/ ....#/....#/...#./..#../.#.../#..../#....
+: ...../..#../..#../...../..#../..#../.....
+; ...../..#../..#../...../..#../..#../.#...
+< ....#/...#./..#../.#.../..#../...#./....#
+= ...../...../#####/...../#####/...../.....
+> #..../.#.../..#../...#./..#../.#.../#....
+? .###./#...#/...#./..#../..#../...../..#..
+@ .###./#...#/#.#.#/#.#.#/#.##./#..../.####
+[ .###./.#.../.#.../.#.../.#.../.#.../.###.
+\ #..../#..../.#.../..#../...#./....#/....#
+] .###./...#./...#./...#./...#./...#./.###.
+^ ..#../.#.#./#...#/...../...../...../.....
+_ ...../...../...../...../...../...../#####
+` ..#../..#../...#./...../...../...../.....
+{ ..##./.#.../.#.../#..../.#.../.#.../..##.
+| ..#../..#../..#../..#../..#../..#../..#..
+} .##../...#./...#./....#/...#./...#./.##..
+~ ...../...../.#.#./#.#../...../...../.....
+"""
+
+
+@functools.lru_cache(maxsize=1)
+def _glyph_font() -> dict:
+    font = {" ": (0, 0, 0, 0, 0)}
+    for raw in _GLYPHS.splitlines():
+        if not raw.strip():
+            continue
+        ch = raw[0]
+        rows = raw[2:].split("/")
+        if len(rows) != 7 or any(len(row) != 5 for row in rows):
+            raise ProcsongError(f"glyph {ch!r} must be 7 rows of 5")
+        cols = [0, 0, 0, 0, 0]
+        for y, row in enumerate(rows):
+            for x, pixel in enumerate(row):
+                if pixel == "#":
+                    cols[x] |= 1 << y
+                elif pixel != ".":
+                    raise ProcsongError(f"glyph {ch!r} has {pixel!r}")
+        font[ch] = tuple(cols)
+    for ch in "ABCDEFabcdef0123456789.;-_":
+        if ch not in font:
+            raise ProcsongError(f"font is missing {ch!r}")
+    return font
+
+
+def _gap(scale: int) -> int:
+    return max(2, scale // 2)
+
+
+def _measure(text: str, scale: int) -> int:
+    if not text:
+        return 0
+    return len(text) * (5 * scale + _gap(scale)) - _gap(scale)
+
+
+def _ink(text: str, font) -> str:
+    cleaned = text.replace("\n", " ").replace("\t", " ")
+    return "".join(ch if ch in font else "?" for ch in cleaned)
+
+
+def _truncate(text: str, scale: int, max_width: int, font) -> str:
+    text = _ink(text, font)
+    if _measure(text, scale) <= max_width:
+        return text
+    ellipsis = "..."
+    while text and _measure(text + ellipsis, scale) > max_width:
+        text = text[:-1]
+    return text + ellipsis if text else ellipsis
+
+
+def _fit_line(text: str, max_width: int, preferred: int, minimum: int, font):
+    text = _ink(text, font)
+    for scale in range(preferred, minimum - 1, -1):
+        if _measure(text, scale) <= max_width:
+            return text, scale
+    return _truncate(text, minimum, max_width, font), minimum
+
+
+def _pack_names(names, scale: int, max_width: int, font) -> list:
+    lines = []
+    current = ""
+    for name in names:
+        piece = _truncate(name, scale, max_width, font)
+        nxt = piece if not current else current + "   " + piece
+        if current and _measure(nxt, scale) > max_width:
+            lines.append(current)
+            current = piece
+        else:
+            current = nxt
+    if current:
+        lines.append(current)
+    return lines
+
+
+def _layout_tracks(names, max_width: int, max_lines: int, font):
+    for scale in (3, 2):
+        lines = _pack_names(names, scale, max_width, font)
+        if len(lines) <= max_lines:
+            return lines, scale
+    lines = _pack_names(names, 2, max_width, font)[:max_lines]
+    if lines:
+        lines[-1] = _truncate(lines[-1] + " ...", 2, max_width, font)
+    return lines, 2
+
+
+def _canvas(width: int, height: int, rgb) -> bytearray:
+    return bytearray(bytes(rgb) * (width * height))
+
+
+def _fill_rect(buf, width: int, height: int, x: int, y: int, w: int, h: int, rgb):
+    if w <= 0 or h <= 0:
+        return
+    x0 = max(0, x)
+    y0 = max(0, y)
+    x1 = min(width, x + w)
+    y1 = min(height, y + h)
+    if x0 >= x1 or y0 >= y1:
+        return
+    stride = width * 3
+    span = bytes(rgb) * (x1 - x0)
+    for yy in range(y0, y1):
+        start = yy * stride + x0 * 3
+        buf[start:start + len(span)] = span
+
+
+def _draw_text(buf, width: int, height: int, x: int, y: int, text: str, scale: int, rgb, font) -> int:
+    gap = _gap(scale)
+    stride = width * 3
+    ink = bytes(rgb)
+    for ch in text:
+        cols = font.get(ch)
+        if cols is None:
+            cols = font.get("?", (0, 0, 0, 0, 0))
+        for cx, bits in enumerate(cols):
+            if not bits:
+                continue
+            px0 = x + cx * scale
+            for cy in range(7):
+                if (bits >> cy) & 1 == 0:
+                    continue
+                py0 = y + cy * scale
+                for dy in range(scale):
+                    py = py0 + dy
+                    if not 0 <= py < height:
+                        continue
+                    row = py * stride
+                    x0 = px0 if px0 > 0 else 0
+                    x1 = px0 + scale if px0 + scale < width else width
+                    if x0 < x1:
+                        buf[row + x0 * 3:row + x1 * 3] = ink * (x1 - x0)
+        x += 5 * scale + gap
+    return x - gap
+
+
+def _draw_centered(buf, width, height, y, text, scale, rgb, font):
+    _draw_text(buf, width, height, (width - _measure(text, scale)) // 2, y, text, scale, rgb, font)
+
+
+def _png_bytes(width: int, height: int, rgb: bytearray) -> bytes:
+    stride = width * 3
+    raw = bytearray()
     for y in range(height):
-        rows.append(b"\x00" + (bar if y0 <= y < y1 else background))
-    raw = b"".join(rows)
+        raw.append(0)
+        start = y * stride
+        raw.extend(rgb[start:start + stride])
 
     def chunk(tag: bytes, payload: bytes) -> bytes:
         crc = zlib.crc32(tag + payload) & 0xFFFFFFFF
@@ -1510,6 +1894,80 @@ def _solid_png(width: int, height: int, rgb) -> bytes:
 
     ihdr = struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0)
     return b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", ihdr) + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b"")
+
+
+def _count_phrase(count: int, singular: str, plural: str) -> str:
+    return f"{count} {singular if count == 1 else plural}"
+
+
+def package_title(source: str) -> str:
+    """Leaf name of a zip path or URL, without .zip or .bytes."""
+    text = source.strip()
+    if _looks_like_url(text):
+        leaf = urllib.parse.unquote(urllib.parse.urlsplit(text).path)
+        leaf = leaf.rstrip("/").rsplit("/", 1)[-1]
+    else:
+        leaf = os.path.basename(text)
+    lower = leaf.lower()
+    for suffix in (".zip", ".bytes"):
+        if lower.endswith(suffix):
+            leaf = leaf[:-len(suffix)]
+            break
+    return leaf.strip() or "procsong"
+
+
+def song_title(source: str, given: str) -> str:
+    """The name on the picture. A given name wins; otherwise it comes from the file or URL."""
+    text = "" if given is None else str(given).strip()
+    if text:
+        return text
+    return package_title(source)
+
+
+def _card_png(title: str, seed_text: str, track_names, clip_count: int, draw_bar: bool) -> bytes:
+    """Still 1280x720 card. Text stays out of the center band, which a spectrum may cover."""
+    width, height = YOUTUBE_WIDTH, YOUTUBE_HEIGHT
+    font = _glyph_font()
+    buf = _canvas(width, height, CARD_BG)
+    margin = 64
+    max_width = width - margin * 2
+    if draw_bar:
+        # Same light bar as the old frame, so a preview is obviously a picture.
+        bar = tuple(min(255, channel + 150) for channel in CARD_BG)
+        _fill_rect(buf, width, height, 0, height // 2 - 8, width, 16, bar)
+    else:
+        _fill_rect(buf, width, height, 0, SPECTRUM_Y - 8, width, 3, CARD_GOLD)
+        _fill_rect(buf, width, height, 0, SPECTRUM_Y + SPECTRUM_H + 5, width, 3, CARD_GOLD)
+
+    word = "PROCSONG"
+    version = FORMAT_VERSION
+    word_scale = 3
+    group = _measure(word, word_scale) + 16 + _measure(version, word_scale)
+    x = (width - group) // 2
+    x = _draw_text(buf, width, height, x, 58, word, word_scale, CARD_GOLD, font)
+    _draw_text(buf, width, height, x + 16, 58, version, word_scale, CARD_DIM, font)
+
+    title_text, title_scale = _fit_line(title, max_width, 7, 4, font)
+    _draw_centered(buf, width, height, 112, title_text, title_scale, CARD_INK, font)
+
+    meta = (
+        f"seed {seed_text}    "
+        f"{_count_phrase(len(track_names), 'track', 'tracks')}    "
+        f"{_count_phrase(clip_count, 'clip', 'clips')}"
+    )
+    meta_text, meta_scale = _fit_line(meta, max_width, 3, 2, font)
+    _draw_centered(buf, width, height, 112 + 7 * title_scale + 22, meta_text, meta_scale, CARD_DIM, font)
+    # y=216 through about y=264 is left empty. ffmpeg draws the running clock there.
+
+    track_top = SPECTRUM_Y + SPECTRUM_H + 36
+    track_lines, track_scale = _layout_tracks(track_names, max_width, 8, font)
+    pitch = 7 * track_scale + _gap(track_scale) + 4
+    for index, line in enumerate(track_lines):
+        y = track_top + index * pitch
+        if y + 7 * track_scale > height - 36:
+            break
+        _draw_centered(buf, width, height, y, line, track_scale, CARD_INK, font)
+    return _png_bytes(width, height, buf)
 
 
 def _ffmpeg() -> str:
@@ -1522,17 +1980,119 @@ def _ffmpeg() -> str:
     return exe
 
 
-def _ffmpeg_command(exe: str, png: str, target: str):
-    # H.264 + AAC, CBR, keyframe every 2 seconds. The still picture is required
+def _clock_font() -> str:
+    """A font ffmpeg can draw. The clock is painted per frame, so it cannot live in the still card."""
+    if sys.platform == "win32":
+        fonts = os.path.join(os.environ.get("WINDIR", r"C:\Windows"), "Fonts")
+        names = [
+            os.path.join(fonts, "consola.ttf"),
+            os.path.join(fonts, "cour.ttf"),
+            os.path.join(fonts, "arial.ttf"),
+            os.path.join(fonts, "segoeui.ttf"),
+        ]
+    else:
+        names = [
+            "/usr/share/fonts/truetype/dejavu/DejaVuSansMono.ttf",
+            "/usr/share/fonts/truetype/liberation/LiberationMono-Regular.ttf",
+            "/usr/share/fonts/truetype/freefont/FreeMono.ttf",
+            "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf",
+            "/usr/share/fonts/TTF/DejaVuSansMono.ttf",
+        ]
+    for path in names:
+        if os.path.isfile(path):
+            return path
+    return ""
+
+
+def _rgb_hex(rgb) -> str:
+    return "{:02X}{:02X}{:02X}".format(*rgb)
+
+
+def _clock_filter(fontfile: str) -> str:
+    # Same shape as the terminal clock: hours keep growing, minutes and seconds are two digits.
+    # Commas would split the filtergraph, so the minute and second fields avoid mod().
+    text = (
+        "%{eif\\:t/3600\\:d}"
+        "\\:%{eif\\:t/60-floor(t/3600)*60\\:d\\:2}"
+        "\\:%{eif\\:t-floor(t/60)*60\\:d\\:2}"
+    )
+    path = fontfile.replace("\\", "/").replace(":", "\\:")
+    # y=216 sits in the gap between the seed line and the center band.
+    return (
+        f"drawtext=fontfile='{path}':text='{text}':fontsize=48:"
+        f"fontcolor=0x{_rgb_hex(CARD_INK)}:x=(w-text_w)/2:y=216"
+    )
+
+
+def _video_graph(spectrum: bool, fontfile: str) -> str:
+    """Filter graph for the picture. Empty when the card can be mapped as a still."""
+    clock = _clock_filter(fontfile) if fontfile else ""
+    if spectrum:
+        # overlap is 1 - hop/window. The default of 1 runs an FFT per sample, which
+        # is not cheap enough to leave on for weeks. 0.5 is about one FFT per frame.
+        # colorkey drops the filter's black field so the bars sit on the card.
+        head = (
+            "[0:a]asplit=2[a][vis];"
+            f"[vis]showfreqs=s={YOUTUBE_WIDTH}x{SPECTRUM_H}:mode=bar:fscale=log:"
+            f"ascale=sqrt:win_size=2048:overlap=0.5:averaging=2:colors=0x{_rgb_hex(CARD_GOLD)}:"
+            f"cmode=combined:rate={YOUTUBE_FPS},"
+            "colorkey=black:similarity=0.08:blend=0[spec];"
+            f"[1:v][spec]overlay=0:{SPECTRUM_Y}:format=auto"
+        )
+        if clock:
+            return head + f",format=rgb24,{clock},format=yuv420p[v]"
+        return head + ",format=yuv420p[v]"
+    if clock:
+        return f"[1:v]{clock},format=yuv420p[v]"
+    return ""
+
+
+def _graph_works(exe: str, spectrum: bool, fontfile: str) -> bool:
+    """Try the picture graph locally before opening the ingest."""
+    graph = _video_graph(spectrum, fontfile)
+    if not graph:
+        return True
+    cmd = [
+        exe, "-hide_banner", "-loglevel", "error", "-nostdin",
+        "-f", "lavfi", "-i", f"sine=frequency=220:sample_rate={RATE}:duration=1",
+        "-f", "lavfi", "-i", f"color=c=0x{_rgb_hex(CARD_BG)}:s={YOUTUBE_WIDTH}x{YOUTUBE_HEIGHT}:r={YOUTUBE_FPS}",
+        "-filter_complex", graph,
+        "-map", "[v]",
+    ]
+    if spectrum:
+        cmd += ["-map", "[a]"]
+    else:
+        cmd += ["-map", "0:a:0"]
+    cmd += ["-frames:v", "1", "-f", "null", "-"]
+    try:
+        proc = subprocess.run(cmd, capture_output=True, timeout=30)
+    except (OSError, subprocess.TimeoutExpired):
+        return False
+    return proc.returncode == 0
+
+
+def _ffmpeg_command(exe: str, png: str, target: str, spectrum: bool, fontfile: str):
+    # H.264 + AAC, CBR, keyframe every 2 seconds. The picture is required
     # because YouTube rejects audio-only. -re reads the audio pipe in realtime.
     gop = str(YOUTUBE_FPS * 2)
-    return [
+    command = [
         exe, "-hide_banner", "-loglevel", "warning", "-nostdin",
         "-thread_queue_size", "1024",
         "-re", "-f", "s16le", "-ar", str(RATE), "-ac", "2", "-i", "pipe:0",
+        "-thread_queue_size", "64",
         "-loop", "1", "-framerate", str(YOUTUBE_FPS), "-i", png,
-        "-map", "1:v:0", "-map", "0:a:0",
-        "-c:v", "libx264", "-preset", "veryfast", "-tune", "stillimage",
+    ]
+    graph = _video_graph(spectrum, fontfile)
+    if graph:
+        command += ["-filter_complex", graph, "-map", "[v]"]
+        command += ["-map", "[a]" if spectrum else "0:a:0"]
+    else:
+        command += ["-map", "1:v:0", "-map", "0:a:0"]
+    command += ["-c:v", "libx264", "-preset", "veryfast"]
+    # stillimage smears a clock that changes every second.
+    if not spectrum and not fontfile:
+        command += ["-tune", "stillimage"]
+    command += [
         "-pix_fmt", "yuv420p", "-profile:v", "high", "-level", "4.0",
         "-b:v", YOUTUBE_VIDEO_BITRATE, "-maxrate", YOUTUBE_VIDEO_BITRATE, "-bufsize", "8000k",
         "-g", gop, "-keyint_min", gop, "-sc_threshold", "0",
@@ -1542,35 +2102,58 @@ def _ffmpeg_command(exe: str, png: str, target: str):
         "-f", "flv", "-flvflags", "no_duration_filesize",
         target,
     ]
+    return command
+
+
+def _picture_mode(exe: str):
+    """Spectrum and clock when ffmpeg can draw them, otherwise the still card."""
+    font = _clock_font()
+    candidates = []
+    if font:
+        candidates.append((True, font))
+    candidates.append((True, ""))
+    if font:
+        candidates.append((False, font))
+    for spectrum, fontfile in candidates:
+        if _graph_works(exe, spectrum, fontfile):
+            return spectrum, fontfile
+    return False, ""
 
 
 class YoutubeSink(_PipeSink):
     """H.264 + AAC FLV to an RTMP(S) ingest. YouTube rejects audio-only streams."""
 
-    def __init__(self, target: str):
+    def __init__(self, target: str, title: str, seed_text: str, track_names, clip_count: int):
         exe = _ffmpeg()
+        print("procsong: preparing the picture", file=sys.stderr, flush=True)
+        self.spectrum, font = _picture_mode(exe)
+        self.clock = bool(font)
+        self.png = None
         fd, self.png = tempfile.mkstemp(prefix="procsong-", suffix=".png")
         try:
-            os.write(fd, _solid_png(YOUTUBE_WIDTH, YOUTUBE_HEIGHT, (36, 58, 78)))
-        finally:
-            os.close(fd)
-        try:
-            super().__init__(_ffmpeg_command(exe, self.png, target), "ffmpeg")
+            try:
+                os.write(fd, _card_png(title, seed_text, track_names, clip_count, draw_bar=not self.spectrum))
+            finally:
+                os.close(fd)
+            super().__init__(_ffmpeg_command(exe, self.png, target, self.spectrum, font), "ffmpeg")
         except Exception:
-            self._remove_png()
+            self._remove_temp()
             raise
-        time.sleep(0.4)
-        if self.proc is not None and self.proc.poll() is not None:
-            message = self._died()
-            self.close()
-            raise ProcsongError(message)
+        try:
+            self.proc.wait(timeout=0.4)
+        except subprocess.TimeoutExpired:
+            return
+        self._thread.join(timeout=0.5)
+        message = self._died()
+        self.close()
+        raise ProcsongError(message)
 
     def close(self):
         super().close()
-        self._remove_png()
+        self._remove_temp()
 
-    def _remove_png(self):
-        path = getattr(self, "png", None)
+    def _remove_temp(self):
+        path = self.png
         self.png = None
         if path:
             try:
@@ -1817,7 +2400,7 @@ def stream_target(url: str, key: str) -> str:
         url = DEFAULT_STREAM_URL
     if not (url.startswith("rtmp://") or url.startswith("rtmps://")):
         raise ProcsongError("--stream-url must start with rtmp:// or rtmps://")
-    if any(ch in key for ch in " \t\r\n/?#"):
+    if any(ch in " \t\r\n/?#" for ch in key):
         raise ProcsongError("--stream-key contains characters that cannot go in the stream URL")
     base, sep, query = url.partition("?")
     if key:
@@ -1927,19 +2510,38 @@ def run_check():
     _expect(only(20, "Bass"), chosen=bass0.chosen, muted=bass0.muted, play_seconds=4, crop=True, evaluated=False)
     _expect(only(24, "Bass"), chosen="Bass/A.wav", play_seconds=10, crop=False, evaluated=True)
     _expect(only(24, "Lead"), play_seconds=8, crop=False, evaluated=True)
+    if package_title("C:/songs/My Set.zip") != "My Set":
+        raise ProcsongError("package title did not drop the zip suffix")
+    if package_title("https://www.dropbox.com/s/abc/Song.zip?dl=0") != "Song":
+        raise ProcsongError("package title did not use the URL leaf")
+    if package_title("song.bytes") != "song":
+        raise ProcsongError("package title did not drop the bytes suffix")
+    if song_title("C:/songs/My Set.zip", "Night Shift") != "Night Shift":
+        raise ProcsongError("an explicit song name was ignored")
+    if song_title("C:/songs/My Set.zip", "   ") != "My Set":
+        raise ProcsongError("a blank song name should fall back to the file name")
+    names = [track.name for track in tracks]
+    clip_count = sum(len(track.clips) for track in tracks)
+    still = _card_png("Golden", "12345", names, clip_count, True)
+    moving = _card_png("Golden", "12345", names, clip_count, False)
+    if not still.startswith(b"\x89PNG\r\n\x1a\n") or not moving.startswith(b"\x89PNG\r\n\x1a\n"):
+        raise ProcsongError("video card was not a png")
+    if still == moving:
+        raise ProcsongError("spectrum card matched the still card")
+    _card_png("A" * 180, "99", [f"Track{i}" for i in range(30)], 30, False)
     print(f"OK - python player matches fixtures/golden seed 12345 t=0 ({len(actual)} tracks)")
 
 
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="procsong.py",
-        description="Play a procsong zip. Prints each new choice, grouped by the second it starts.",
+        description="Play a procsong zip. Prints each new choice, grouped by the second it starts. A terminal keeps the latest 100.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""examples:
   python players/python/procsong.py song.zip
   python players/python/procsong.py song.zip --seed 99
   python players/python/procsong.py https://www.dropbox.com/s/.../song.zip?dl=0
-  python players/python/procsong.py song.zip --stream-key YOUR_KEY
+  python players/python/procsong.py song.zip --name "Night Shift" --stream-key YOUR_KEY
   python players/python/procsong.py song.zip --stream-url rtmps://a.rtmps.youtube.com/live2 --stream-key YOUR_KEY
 
 YouTube Studio shows the stream URL and stream key. The default URL is
@@ -1950,6 +2552,7 @@ need ffmpeg or any pip packages.
     )
     parser.add_argument("package", nargs="?", help="procsong zip, a .bytes file, or an http(s) link such as a public Dropbox URL")
     parser.add_argument("--seed", default="", help="decimal integer seed (empty means 12345)")
+    parser.add_argument("--name", default="", help="song name on the picture and in the terminal (default: the file or URL name)")
     parser.add_argument("--stream-key", default="", help="YouTube stream key; switches output from speakers to live ingest")
     parser.add_argument("--stream-url", default="", help=f"RTMP(S) ingest URL (default {DEFAULT_STREAM_URL})")
     parser.add_argument("--gain", type=float, default=0.85, help="master gain, default 0.85")
@@ -1986,18 +2589,29 @@ def main(argv=None) -> int:
         tracks = parse_definition(yaml_text)
         audio = load_audio(tracks, blobs)
         shown = redact_target(target, args.stream_key.strip()) if target else "speakers"
+        title = song_title(args.package, args.name)
         print(
-            f"procsong: {len(tracks)} tracks, {len(audio)} clips, seed {seed_text}, output {shown}",
+            f"procsong: {title}, {len(tracks)} tracks, {len(audio)} clips, seed {seed_text}, output {shown}",
             file=sys.stderr,
             flush=True,
         )
+        names = [track.name for track in tracks]
         if streaming:
-            print("procsong: video is a plain gray frame because YouTube rejects audio-only", file=sys.stderr, flush=True)
-            sink = YoutubeSink(target)
+            sink = YoutubeSink(target, title, seed_text, names, sum(len(track.clips) for track in tracks))
+            parts = [
+                "procsong: YouTube needs a picture. The card shows the song name and tracks.",
+            ]
+            if sink.clock:
+                parts.append("A clock counts how long this run has been playing.")
+            if sink.spectrum:
+                parts.append("The center band is a spectrum of the mix.")
+            else:
+                parts.append("This ffmpeg build will not draw a spectrum.")
+            print(" ".join(parts), file=sys.stderr, flush=True)
         else:
             sink = open_speakers()
         print("procsong: Ctrl+C to stop", file=sys.stderr, flush=True)
-        play(Engine(tracks, seed), audio, sink, args.gain, args.seconds)
+        play(Engine(tracks, seed), audio, sink, args.gain, args.seconds, f"{title}    seed {seed_text}")
         return 0
     except ProcsongError as exc:
         print(f"procsong: {exc}", file=sys.stderr)

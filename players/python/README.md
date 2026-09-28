@@ -12,11 +12,13 @@ YouTube Live is the one case that needs an extra program: `ffmpeg` on `PATH`. Yo
 
 ```text
 python players/python/procsong.py song.zip
-python players/python/procsong.py song.zip --seed 99
+python players/python/procsong.py song.zip --name "Night Shift" --seed 99
 python players/python/procsong.py "https://www.dropbox.com/s/.../song.zip?dl=0" --seed 99
 ```
 
 On Linux the command may be `python3` instead of `python`.
+
+`--name` is the song name in the terminal and, for a stream, on the picture. Leave it out and the name is taken from the file, or from the last part of the URL, without `.zip` or `.bytes`.
 
 An empty seed is `12345`. `--gain` defaults to `0.85`. `--seconds 30` stops after 30 seconds of the song. Otherwise it runs until Ctrl+C.
 
@@ -36,6 +38,8 @@ Printed lines look like:
 
 One line is every new pick that starts at that second, in track order. A clip that simply loops is left off, because that pick was already printed.
 
+On a terminal the list stays on one screen and keeps the latest 100 lines, so a run of days or weeks does not fill the scrollback. Stopping prints those lines back into the normal scrollback. If stdout is redirected to a file, every line is appended instead, and that file grows for the whole run.
+
 | Word | Meaning |
 | :--- | :--- |
 | `muted` | That pick is silent. Downstream tracks still see it |
@@ -54,7 +58,7 @@ rtmp://a.rtmp.youtube.com/live2
 That URL is the default, so the key is enough:
 
 ```text
-python players/python/procsong.py song.zip --seed 12345 --stream-key YOUR_KEY
+python players/python/procsong.py song.zip --name "Night Shift" --seed 12345 --stream-key YOUR_KEY
 ```
 
 YouTube recommends the encrypted ingest. Click the lock next to the stream URL and pass that URL yourself:
@@ -71,7 +75,9 @@ python players/python/procsong.py song.zip --stream-url "rtmp://b.rtmp.youtube.c
 
 A full URL that already contains the key can be passed as `--stream-url` alone.
 
-The picture YouTube shows is a plain dark frame with a light bar. That is intentional: the ingest requires a video track, and the song is the audio. Wait until Studio says the stream is coming in, then click **Go live**. Ctrl+C stops it.
+The picture is a card with the song name, the seed, and the track names. YouTube will not accept audio by itself, so the card is what fills the video track. A clock between the seed line and the center counts how long this run has been playing, as hours:minutes:seconds. The hours do not restart at 24. A band across the middle is a spectrum of the mix when ffmpeg can draw one. The rest of the card does not move, which keeps the encode close to the cost of a still image. If that filter is missing, the card is still and uses a light bar in the middle instead.
+
+Wait until Studio says the stream is coming in, then click **Go live**. Ctrl+C stops it.
 
 Encoder settings follow [YouTube's live encoder recommendations](https://support.google.com/youtube/answer/2853702):
 
