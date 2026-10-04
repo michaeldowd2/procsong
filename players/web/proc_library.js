@@ -19,11 +19,11 @@
  *   });
  *   library.initialise();
  *
- *   // From a remote CSV or JSON URL:
+ *   // From a remote CSV, .prcslib, or JSON URL:
  *   const library = new ProcsongLibrary({
  *     target: 'library',
  *     player: 'player',
- *     library: 'https://example.com/library.csv',
+ *     library: 'https://example.com/library.prcslib',
  *   });
  *   await library.initialise();
  *
@@ -33,9 +33,10 @@
  * `library` may be:
  *   - an array of entry objects
  *   - a single entry object
- *   - a URL string ending in .json or .csv (format is sniffed if unclear)
+ *   - a URL string ending in .json, .csv, or .prcslib (format is sniffed if unclear)
  *
  * JSON may be an array, or an object with a songs / library / entries array.
+ * `.csv` and `.prcslib` are the same CSV text format.
  *
  * @param {object} options
  * @param {string|HTMLElement} options.target
@@ -338,7 +339,7 @@
   function inferFormat(url, contentType, text) {
     const path = pathnameOf(url);
     if (path.endsWith('.json')) return 'json';
-    if (path.endsWith('.csv')) return 'csv';
+    if (path.endsWith('.csv') || path.endsWith('.prcslib')) return 'csv';
     const type = (contentType || '').toLowerCase();
     if (type.includes('json')) return 'json';
     if (type.includes('csv')) return 'csv';

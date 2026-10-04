@@ -128,7 +128,7 @@ This is intentionally close to the spreadsheet representation and is the canonic
 
 ## 3. Package
 
-A package is a zip archive. After discarding ignored entries (below), it **MUST** contain:
+A package is a zip archive (PKZIP). After discarding ignored entries (below), it **MUST** contain:
 
 - exactly one `definition.yml` matching `schema.yaml` and §17;
 - exactly one resolvable audio file for every clip `path` (see §3.2).
@@ -137,6 +137,17 @@ Ignored zip entries (not counted toward the rules above):
 
 - any path containing a `__MACOSX` segment (case-insensitive);
 - any leaf name that is `.DS_Store` or begins with `._`.
+
+### 3.0 Container file names
+
+The archive bytes are ordinary zip content. A package **MAY** be distributed under either of these extensions (case-insensitive):
+
+- `.zip` — conventional zip name;
+- `.prcs` — procsong package name (same zip bytes).
+
+Players that accept a package by path or URL **MUST** treat `.zip` and `.prcs` as equivalent containers. When the extension is absent or ambiguous, players **MAY** accept the payload if it begins with the zip local-file signature `PK` (`0x50 0x4B`).
+
+Unity and other hosts that cannot ship a raw `.zip` / `.prcs` as a playable asset **MAY** rename either extension to `.bytes` (or an equivalent binary asset type). The bytes remain a zip archive; renaming does not change the package format.
 
 ### 3.1 Exactly one definition
 
@@ -843,7 +854,7 @@ This is the recommended authoring representation because the YAML visually remai
 12. inter `columns` equal the concatenation of complete upstream clip-id blocks in track declaration order (§7.1) — contiguous, no interleaving;
 13. every inter column is a clip `id` that resolves to a clip on an earlier track;
 14. no inter column references a clip on the same track or a later track;
-15. package zip rules in §3–§3.2 (exactly one definition; unique ClipKeys; every path resolves and decodes).
+15. package rules in §3–§3.2 (container `.zip` / `.prcs`; exactly one definition; unique ClipKeys; every path resolves and decodes).
 
 Invalid input **MUST** be rejected rather than padded, truncated, reordered, type-coerced, or silently defaulted.
 
@@ -915,7 +926,7 @@ A version 2 implementation is compliant if it:
 
 1. accepts `format_version: 2.0.0` and rejects unknown definition keys;
 2. parses `definition.yml` under the §3.3 YAML dialect and scalar-type rules;
-3. enforces §3 package rules (exactly one definition; ClipKey uniqueness; fail on missing audio);
+3. enforces §3 package rules (exactly one definition; ClipKey uniqueness; fail on missing audio; `.zip` / `.prcs` equivalence);
 4. treats each track as one clip group;
 5. processes tracks in YAML declaration order;
 6. preserves clip declaration order;
@@ -931,3 +942,22 @@ A version 2 implementation is compliant if it:
 16. rejects invalid matrix dimensions/references and out-of-range non-finite numbers;
 17. emits and matches all six schedule fields (§12);
 18. matches the golden test in section 19.
+
+---
+
+## 21. Song library (optional player feature)
+
+A **library** is a list of procsong packages for discovery and selection. It is outside the sequencing schedule: players that only load one package need not implement libraries.
+
+When a player loads a library from a file or URL:
+
+- A **CSV library** **MAY** use the extension `.csv` or `.prcslib` (case-insensitive). Both are the same CSV text format.
+- A **JSON library** **MAY** use the extension `.json`.
+- When the extension is absent or ambiguous, players **MAY** sniff the body (JSON if it starts with `[` or `{`; otherwise CSV).
+
+A CSV / `.prcslib` library is a header row plus data rows. Only `procsong_url` is required. Optional columns include `title`, `artist`, `description`, `tags`, and `image_url`. `procsong_url` **MUST** point at a package (§3), typically ending in `.zip` or `.prcs`.
+
+```text
+title,artist,description,tags,procsong_url,image_url
+"Game Music","Michael Dowd","A procedural song","game music;synth","https://…/song.prcs","https://…/cover.png"
+```

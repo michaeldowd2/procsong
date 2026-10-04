@@ -3,8 +3,8 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Procsong v2 — infinite procedural music</title>
-  <meta name="description" content="An infinite, clip-based procedural music format (version 2). Load a library, pick a song, bookmark the page, and share it with anyone, anywhere.">
+  <title>Procsong Web Player — infinite procedural music</title>
+  <meta name="description" content="A simple web player for Procsong libraries. Procsong is a clip-based infinite music format — load a library, pick a song, bookmark the page, and share it.">
   <meta name="theme-color" content="#e4b45a">
   <link rel="canonical" href="https://michaeldowd2.github.io/procsong/players/web/">
 
@@ -62,6 +62,15 @@
       padding: 36px 20px 56px;
     }
 
+    .brand-mark {
+      margin: 0 0 6px;
+      font: 500 0.85rem/1.2 var(--mono);
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--neon);
+      text-shadow: 0 0 12px rgba(255, 79, 216, 0.35);
+    }
+
     h1 {
       font-family: var(--display);
       font-size: clamp(2.2rem, 7vw, 4.2rem);
@@ -77,22 +86,9 @@
       margin: 0 0 8px;
     }
 
-    .version-badge {
-      display: inline-block;
-      margin-left: 0.4em;
-      padding: 2px 10px;
-      border-radius: 999px;
-      border: 1px solid color-mix(in srgb, var(--neon) 42%, var(--line));
-      font: 500 0.9rem/1 var(--mono);
-      letter-spacing: 0.12em;
-      color: var(--neon);
-      vertical-align: middle;
-      text-shadow: 0 0 12px rgba(255, 79, 216, 0.35);
-    }
-
     .lede {
       color: var(--muted);
-      margin: 0 0 10px;
+      margin: 0 0 16px;
       font-size: 15px;
     }
 
@@ -104,11 +100,41 @@
 
     .lede a:hover { text-decoration: underline; }
 
+    .about-procsong {
+      margin: 0 0 22px;
+      padding: 14px 16px 16px;
+      background: var(--panel);
+      border: 1px solid var(--line);
+      border-radius: 8px;
+    }
+
+    .about-procsong h2 {
+      margin: 0 0 8px;
+      font: 600 13px/1.2 var(--mono);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: var(--accent);
+    }
+
+    .about-procsong p {
+      margin: 0 0 12px;
+      color: var(--muted);
+      font-size: 14px;
+    }
+
+    .about-procsong p:last-of-type { margin-bottom: 12px; }
+
+    .about-procsong code {
+      font-family: var(--mono);
+      font-size: 12px;
+      color: var(--text);
+    }
+
     .uses {
       display: flex;
       flex-wrap: wrap;
       gap: 8px;
-      margin: 0 0 20px;
+      margin: 0;
       padding: 0;
       list-style: none;
     }
@@ -286,28 +312,39 @@
   </style>
 </head>
 <body>
-  <h1>Web Player<span class="version-badge">v2</span></h1>
+  <p class="brand-mark">Procsong v2</p>
+  <h1>Web Player</h1>
   <p class="lede">
-    A web player for the Procsong music arrangements and libraries.
-    <a href="#help-procsong">Create some procsongs</a>,
-    <a href="#help-library">create a library</a>,
-    <a href="#libraryUrl">load it below</a>,
-    then bookmark the link to share it with others to enjoy your infinite music creations.
+    A simple browser player for any hosted Procsong library — yours or anyone else's.
+    <a href="#help-procsong">Make procsongs</a>,
+    <a href="#help-library">host a library</a>,
+    <a href="#libraryUrl">load its URL below</a>,
+    and the address bar updates so you can bookmark or share the link.
   </p>
-  <ul class="uses">
-    <li>Background music</li>
-    <li>Shops &amp; cafes</li>
-    <li>Study music</li>
-    <li>Game Music</li>
-    <li>Dance and Instrument Practice</li>
-    <li>Art installations</li>
-  </ul>
+  <aside class="about-procsong" aria-labelledby="about-procsong-heading">
+    <h2 id="about-procsong-heading">What is a Procsong?</h2>
+    <p>
+      Procsong is an open format for <em>deterministic, clip-based, infinite music</em>.
+      A package is a zip of short audio clips plus a <code>definition.yml</code>
+      (distributed as <code>.zip</code> or <code>.prcs</code>). With the same package and seed,
+      any compliant player produces the same arrangement — tracks of different lengths
+      overlap and recombine forever, with no fixed loop.
+    </p>
+    <ul class="uses">
+      <li>Background music</li>
+      <li>Shops &amp; cafes</li>
+      <li>Study music</li>
+      <li>Game Music</li>
+      <li>Dance and Instrument Practice</li>
+      <li>Art installations</li>
+    </ul>
+  </aside>
 
   <div class="library-tools">
     <div class="library-load">
       <label class="field">
         Library URL
-        <input id="libraryUrl" type="text" spellcheck="false" placeholder="https://…/library.csv">
+        <input id="libraryUrl" type="text" spellcheck="false" placeholder="https://…/library.prcslib">
       </label>
       <button id="loadLibraryBtn" type="button">Load</button>
     </div>
@@ -323,7 +360,8 @@
       <summary>How to make a procsong (version 2)…</summary>
       <div class="help-panel">
         <p>
-          A procsong is a zip of audio clips plus a <code>definition.yml</code>. The same zip and seed
+          A procsong is a zip of audio clips plus a <code>definition.yml</code>, distributed as
+          <code>.zip</code> or <code>.prcs</code> (same archive bytes). The same package and seed
           always produce the same arrangement: tracks of different lengths overlap and recombine, so
           the piece keeps going without a fixed loop.
         </p>
@@ -346,7 +384,7 @@
         <ol>
           <li>Record a few interchangeable clips per track (e.g. two drum loops). Make each wav a couple of seconds longer than the start interval so tails overlap.</li>
           <li>Put them in folders named after the track, and write a <code>definition.yml</code> next to those folders.</li>
-          <li>Zip the yaml and the clip folders together, host the zip, then add its URL to a library.</li>
+          <li>Zip the yaml and the clip folders together, name the archive <code>.zip</code> or <code>.prcs</code>, host it, then add its URL to a library.</li>
         </ol>
         <p>Minimal <code>definition.yml</code> — a drums track and an organ track that follows it:</p>
         <pre>format_version: 2.0.0
@@ -381,9 +419,9 @@ tracks:
           Tracks do not share a bar: a 12-second track can restart while an 8-second track is still on its first clip.
           Track order matters — tracks evaluate top to bottom, so a later track sees earlier tracks' current clips.
           Mute is volume after a choice — other tracks still see the chosen clip.
-          Seeds are decimal integers (empty defaults to <code>12345</code>). A package zip
-          must contain exactly one <code>definition.yml</code> and every clip <code>path</code>
-          must resolve to audio.
+          Seeds are decimal integers (empty defaults to <code>12345</code>). A package
+          (<code>.zip</code> or <code>.prcs</code>) must contain exactly one <code>definition.yml</code>
+          and every clip <code>path</code> must resolve to audio.
           The exact algorithm (matrices, clocks, evaluation order, shared PRNG) is
           <a href="../../SPECIFICATION.md">SPECIFICATION.md</a>, validated against
           <a href="../../schema.yaml">schema.yaml</a>. The in-repo golden fixture is
@@ -398,16 +436,17 @@ tracks:
           A library is a CSV or JSON file of procsong packages. Host it anywhere the browser can fetch
           (a Dropbox share link works), paste that URL above, and press Load. The address bar updates
           with <code>library_url</code> so you can send this page to friends.
+          CSV libraries may use <code>.csv</code> or <code>.prcslib</code> (same format).
         </p>
         <p>Only <code>procsong_url</code> is required. Everything else is optional:</p>
         <ul>
           <li><code>title</code>, <code>artist</code>, <code>description</code></li>
           <li><code>tags</code> — semicolon-separated, e.g. <code>game music;synth</code></li>
-          <li><code>procsong_url</code> — zip of the procsong package (a version-2 package)</li>
+          <li><code>procsong_url</code> — <code>.zip</code> or <code>.prcs</code> package URL</li>
           <li><code>image_url</code> — cover art</li>
         </ul>
         <pre>title,artist,description,tags,procsong_url,image_url
-"Game Music","Michael Dowd","A procedural song","game music;synth","https://…/song.zip","https://…/cover.png"</pre>
+"Game Music","Michael Dowd","A procedural song","game music;synth","https://…/song.prcs","https://…/cover.png"</pre>
         <p>JSON is an array of objects with the same field names.</p>
       </div>
     </details>

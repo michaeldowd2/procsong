@@ -1,12 +1,16 @@
 #!/usr/bin/env python3
-"""Play a procsong zip from the command line.
+"""Play a procsong package from the command line.
 
 Same package and seed as the web and Unity players: the same clip, mute,
 start time, play length, and crop flag. Speakers use only the Python standard
 library. YouTube Live is optional and needs ffmpeg on PATH.
 
+The package is a zip archive named `.zip` or `.prcs` (or a Unity `.bytes`
+rename).
+
     python players/python/procsong.py song.zip --seed 12345
-    python players/python/procsong.py https://www.dropbox.com/.../song.zip --seed 12345
+    python players/python/procsong.py song.prcs --seed 12345
+    python players/python/procsong.py https://www.dropbox.com/.../song.prcs --seed 12345
     python players/python/procsong.py song.zip --stream-key YOUR_KEY
 
 The sections below follow that path: seed, definition, schedule, package
@@ -1901,7 +1905,7 @@ def _count_phrase(count: int, singular: str, plural: str) -> str:
 
 
 def package_title(source: str) -> str:
-    """Leaf name of a zip path or URL, without .zip or .bytes."""
+    """Leaf name of a package path or URL, without .zip, .prcs, or .bytes."""
     text = source.strip()
     if _looks_like_url(text):
         leaf = urllib.parse.unquote(urllib.parse.urlsplit(text).path)
@@ -1909,7 +1913,7 @@ def package_title(source: str) -> str:
     else:
         leaf = os.path.basename(text)
     lower = leaf.lower()
-    for suffix in (".zip", ".bytes"):
+    for suffix in (".zip", ".prcs", ".bytes"):
         if lower.endswith(suffix):
             leaf = leaf[:-len(suffix)]
             break
@@ -2512,8 +2516,12 @@ def run_check():
     _expect(only(24, "Lead"), play_seconds=8, crop=False, evaluated=True)
     if package_title("C:/songs/My Set.zip") != "My Set":
         raise ProcsongError("package title did not drop the zip suffix")
+    if package_title("C:/songs/My Set.prcs") != "My Set":
+        raise ProcsongError("package title did not drop the prcs suffix")
     if package_title("https://www.dropbox.com/s/abc/Song.zip?dl=0") != "Song":
         raise ProcsongError("package title did not use the URL leaf")
+    if package_title("https://example.com/Song.prcs?dl=0") != "Song":
+        raise ProcsongError("package title did not drop the prcs URL suffix")
     if package_title("song.bytes") != "song":
         raise ProcsongError("package title did not drop the bytes suffix")
     if song_title("C:/songs/My Set.zip", "Night Shift") != "Night Shift":
@@ -2535,12 +2543,12 @@ def run_check():
 def build_parser():
     parser = argparse.ArgumentParser(
         prog="procsong.py",
-        description="Play a procsong zip. Prints each new choice, grouped by the second it starts. A terminal keeps the latest 100.",
+        description="Play a procsong package (.zip or .prcs). Prints each new choice, grouped by the second it starts. A terminal keeps the latest 100.",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""examples:
   python players/python/procsong.py song.zip
-  python players/python/procsong.py song.zip --seed 99
-  python players/python/procsong.py https://www.dropbox.com/s/.../song.zip?dl=0
+  python players/python/procsong.py song.prcs --seed 99
+  python players/python/procsong.py https://www.dropbox.com/s/.../song.prcs?dl=0
   python players/python/procsong.py song.zip --name "Night Shift" --stream-key YOUR_KEY
   python players/python/procsong.py song.zip --stream-url rtmps://a.rtmps.youtube.com/live2 --stream-key YOUR_KEY
 
@@ -2550,7 +2558,7 @@ for the RTMPS URL. ffmpeg must be on PATH for this output. Speakers do not
 need ffmpeg or any pip packages.
 """,
     )
-    parser.add_argument("package", nargs="?", help="procsong zip, a .bytes file, or an http(s) link such as a public Dropbox URL")
+    parser.add_argument("package", nargs="?", help="procsong .zip / .prcs, a Unity .bytes rename, or an http(s) link such as a public Dropbox URL")
     parser.add_argument("--seed", default="", help="decimal integer seed (empty means 12345)")
     parser.add_argument("--name", default="", help="song name on the picture and in the terminal (default: the file or URL name)")
     parser.add_argument("--stream-key", default="", help="YouTube stream key; switches output from speakers to live ingest")

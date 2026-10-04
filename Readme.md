@@ -2,9 +2,9 @@
 
 An open-source schema for **deterministic, clip-based, infinite music**.
 
-A Procsong package is a zip of audio clips plus a `definition.yml`. Together with a numeric **seed**, any compliant player produces the same arrangement.
+A Procsong package is a zip of audio clips plus a `definition.yml`, distributed as `.zip` or `.prcs`. Together with a numeric **seed**, any compliant player produces the same arrangement.
 
-The piece has **no fixed loop and no shared bar**. Each track has its own start interval. Tracks overlap and recombine forever. The same zip and seed always yield the same schedule of *which clip starts at which second*.
+The piece has **no fixed loop and no shared bar**. Each track has its own start interval. Tracks overlap and recombine forever. The same package and seed always yield the same schedule of *which clip starts at which second*.
 
 ## How sequencing works
 
@@ -31,9 +31,9 @@ If two players disagree on what plays, the spec is right; the player is wrong.
 
 ## Players
 
-- **Web** — open [`players/web/index.html`](players/web/index.html) in a browser. Load a library, pick a song, set a seed, press Play.
-- **Unity** — Package Manager → **Add package from git URL…** → `https://github.com/michaeldowd2/procsong.git?path=/players/unity`. Add **Procsong Player**, copy the song zip into `Assets` as `.bytes`, and assign it. See [`players/unity/Documentation~/README.md`](players/unity/Documentation~/README.md).
-- **Python** — `python players/python/procsong.py song.zip --seed 12345`, or pass a public zip URL (Dropbox share links work). Prints each new choice and plays it. A terminal keeps the latest 100 choices. No extra Python packages. Optional YouTube Live output needs `ffmpeg`; the picture shows the song name (`--name`, or the file name), a running playtime, and a spectrum of the mix. See [`players/python/README.md`](players/python/README.md).
+- **Web** — open [`players/web/index.html`](players/web/index.html) in a browser. Load a library (`.csv` or `.prcslib`), pick a song, set a seed, press Play.
+- **Unity** — Package Manager → **Add package from git URL…** → `https://github.com/michaeldowd2/procsong.git?path=/players/unity`. Add **Procsong Player**, copy the song `.zip` or `.prcs` into `Assets` as `.bytes`, and assign it. See [`players/unity/Documentation~/README.md`](players/unity/Documentation~/README.md).
+- **Python** — `python players/python/procsong.py song.prcs --seed 12345`, or pass a public package URL (Dropbox share links work). Prints each new choice and plays it. A terminal keeps the latest 100 choices. No extra Python packages. Optional YouTube Live output needs `ffmpeg`; the picture shows the song name (`--name`, or the file name), a running playtime, and a spectrum of the mix. See [`players/python/README.md`](players/python/README.md).
 
 ## Package shape
 

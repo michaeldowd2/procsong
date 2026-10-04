@@ -8,10 +8,11 @@ using UnityEngine;
 namespace Procsong
 {
     /// <summary>
-    /// Unity player for a Procsong package. Assign a <c>.bytes</c> file (the zip renamed),
-    /// then call <see cref="Play"/> when you want music — it does not start on its own.
+    /// Unity player for a Procsong package. Assign a <c>.bytes</c> file (a <c>.zip</c> or
+    /// <c>.prcs</c> archive renamed), then call <see cref="Play"/> when you want music — it
+    /// does not start on its own.
     ///
-    /// The zip is unpacked into memory on the first Play(), not when the scene loads.
+    /// The package is unpacked into memory on the first Play(), not when the scene loads.
     /// Nothing is written to disk.
     /// </summary>
     [DisallowMultipleComponent]
@@ -23,7 +24,7 @@ namespace Procsong
         const float StartDelaySec = 0.08f;
 
         [Header("Package")]
-        [Tooltip("Rename the procsong zip to .bytes in Assets, then drag it here. Unity does not include raw .zip files in builds.")]
+        [Tooltip("Rename the procsong .zip or .prcs to .bytes in Assets, then drag it here. Unity does not include raw .zip/.prcs files in builds.")]
         [SerializeField] TextAsset songPackage;
 
         [Header("Playback")]
@@ -271,7 +272,7 @@ namespace Procsong
             {
                 throw new InvalidOperationException(
                     "Assign a procsong .bytes file on Song Package. " +
-                    "Copy the zip into Assets and rename it .bytes — Unity does not include raw .zip files in player builds.");
+                    "Copy the .zip or .prcs into Assets and rename it .bytes — Unity does not include raw .zip/.prcs files in player builds.");
             }
             UnpackZip(songPackage.bytes, out yaml, out clips);
         }
@@ -618,7 +619,7 @@ namespace Procsong
                 if (serializedObject.FindProperty("songPackage").objectReferenceValue == null)
                 {
                     UnityEditor.EditorGUILayout.HelpBox(
-                        "Copy the procsong zip into Assets, rename it .bytes, and drag it onto Song Package.",
+                        "Copy the procsong .zip or .prcs into Assets, rename it .bytes, and drag it onto Song Package.",
                         UnityEditor.MessageType.Warning);
                 }
                 UnityEditor.EditorGUILayout.HelpBox(

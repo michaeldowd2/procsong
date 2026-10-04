@@ -1,6 +1,6 @@
 # Procsong on the command line
 
-Plays a procsong zip the same way as the web and Unity players: same seed, same clip, same mute, same start time. There is no window. Each new pick is printed, and picks that share a time share a line. Repeats of the current pick are not printed.
+Plays a procsong package (`.zip` or `.prcs`) the same way as the web and Unity players: same seed, same clip, same mute, same start time. There is no window. Each new pick is printed, and picks that share a time share a line. Repeats of the current pick are not printed.
 
 Python 3.8 or newer is enough. There is nothing to `pip install`.
 
@@ -12,21 +12,21 @@ YouTube Live is the one case that needs an extra program: `ffmpeg` on `PATH`. Yo
 
 ```text
 python players/python/procsong.py song.zip
-python players/python/procsong.py song.zip --name "Night Shift" --seed 99
-python players/python/procsong.py "https://www.dropbox.com/s/.../song.zip?dl=0" --seed 99
+python players/python/procsong.py song.prcs --name "Night Shift" --seed 99
+python players/python/procsong.py "https://www.dropbox.com/s/.../song.prcs?dl=0" --seed 99
 ```
 
 On Linux the command may be `python3` instead of `python`.
 
-`--name` is the song name in the terminal and, for a stream, on the picture. Leave it out and the name is taken from the file, or from the last part of the URL, without `.zip` or `.bytes`.
+`--name` is the song name in the terminal and, for a stream, on the picture. Leave it out and the name is taken from the file, or from the last part of the URL, without `.zip`, `.prcs`, or `.bytes`.
 
 An empty seed is `12345`. `--gain` defaults to `0.85`. `--seconds 30` stops after 30 seconds of the song. Otherwise it runs until Ctrl+C.
 
-A `.bytes` file is still a zip, so a Unity package works here too.
+A `.prcs` file is the same zip archive as `.zip`, with a procsong-specific extension. A `.bytes` file is still a zip, so a Unity package works here too.
 
-A public `http` or `https` link works in place of a file. A Dropbox share link (`dl=0`, including the newer `/scl/fi/` links) is turned into a direct download the same way the web player does it. The link has to point at the zip itself, and it has to be reachable without logging in.
+A public `http` or `https` link works in place of a file. A Dropbox share link (`dl=0`, including the newer `/scl/fi/` links) is turned into a direct download the same way the web player does it. The link has to point at the package itself, and it has to be reachable without logging in.
 
-After the download line, a large zip still has work to do. The player prints `unpacking` while it opens the files, then `decoding` while it prepares the audio. Those counters mean it is still working.
+After the download line, a large package still has work to do. The player prints `unpacking` while it opens the files, then `decoding` while it prepares the audio. Those counters mean it is still working.
 
 Printed lines look like:
 
@@ -103,4 +103,4 @@ Seed `12345` is compared with [`fixtures/golden/expected-t0.json`](../../fixture
 
 ## Audio files
 
-PCM WAV (8, 16, 24, or 32-bit) or 32-bit float WAV, same as the Unity player. Sample rates from 8000 to 192000 Hz are resampled to 44100 Hz stereo. Anything else is rejected when the zip loads.
+PCM WAV (8, 16, 24, or 32-bit) or 32-bit float WAV, same as the Unity player. Sample rates from 8000 to 192000 Hz are resampled to 44100 Hz stereo. Anything else is rejected when the package loads.

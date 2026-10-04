@@ -10,6 +10,8 @@
  *   - intergroup_consecutive_weight_modifiers
  *       other groups' CURRENT selections → weight this group's CURRENT candidates
  *
+ * A package is a zip archive distributed as `.zip` or `.prcs` (same bytes).
+ *
  * A drop-in component: give it a target element and (optionally) song
  * metadata, then call initialise() to render and play() to start audio.
  *
@@ -25,7 +27,7 @@
  *     imageUrl: 'https://…',      // optional; stored and emitted, not drawn
  *     description: '…',          // optional
  *     tags: ['synth', 'game'],  // optional; string or array
- *     procSongUrl: 'https://….zip',
+ *     procSongUrl: 'https://….prcs',
  *     heading: 'Player',          // optional; empty string hides it
  *   });
  *   player.initialise();
