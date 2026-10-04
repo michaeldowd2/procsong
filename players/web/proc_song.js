@@ -83,12 +83,30 @@
   --ps-input: var(--input-bg, #111);
   --ps-load: var(--transport-load, var(--accent, #888));
   --ps-playbar: var(--transport-play, var(--secondary, #666));
-  --ps-clip: var(--viz-clip, #3fb950);
-  --ps-clip-on: var(--viz-clip-on, var(--transport-play, var(--secondary, #5ee0ff)));
-  --ps-level: var(--viz-level, #e08a3c);
-  --ps-level-pad: 4px;
+  --ps-clip: var(--viz-clip, var(--ps-track-0-muted));
+  --ps-clip-on: var(--viz-clip-on, var(--ps-track-0-bright));
+  --ps-level: var(--viz-level, var(--ps-track-0-bright));
+  --ps-level-pad: 5px;
+  --ps-track-0-muted: #3d8a96;
+  --ps-track-0-bright: #5ee0ff;
+  --ps-track-1-muted: #8a6e36;
+  --ps-track-1-bright: #e4b45a;
+  --ps-track-2-muted: #8a3d76;
+  --ps-track-2-bright: #ff4fd8;
+  --ps-track-3-muted: #634a8f;
+  --ps-track-3-bright: #c9a0ff;
+  --ps-track-4-muted: #3d7a52;
+  --ps-track-4-bright: #5ee89a;
+  --ps-track-5-muted: #8a4e36;
+  --ps-track-5-bright: #ff8a5c;
+  --ps-track-6-muted: #3d528a;
+  --ps-track-6-bright: #6aa8ff;
+  --ps-track-7-muted: #737336;
+  --ps-track-7-bright: #d4e04a;
   --ps-sans: var(--sans, inherit);
   --ps-mono: var(--mono, ui-monospace, monospace);
+  container-type: inline-size;
+  container-name: ps-player;
   color: var(--ps-text);
   font-family: var(--ps-sans);
   margin: 0 0 10px;
@@ -465,7 +483,7 @@
   display: flex;
   align-items: flex-end;
   justify-content: safe center;
-  gap: 12px;
+  gap: 8px;
   width: 100%;
 }
 .ps-player .ps-viz-track {
@@ -482,9 +500,9 @@
   position: relative;
   display: flex;
   flex-direction: column-reverse;
-  gap: 4px;
+  gap: 6px;
   align-items: stretch;
-  padding: var(--ps-level-pad) var(--ps-level-pad) 0;
+  padding: var(--ps-level-pad);
 }
 .ps-player .ps-viz-level {
   position: absolute;
@@ -506,13 +524,6 @@
   overflow: hidden;
   transition: height 0.28s ease;
 }
-.ps-player .ps-viz-level.is-muted {
-  background-image: linear-gradient(
-    to top,
-    color-mix(in srgb, var(--ps-level) 36%, var(--ps-bg)),
-    color-mix(in srgb, var(--ps-level) 58%, var(--ps-bg))
-  );
-}
 .ps-player .ps-viz-clip {
   position: relative;
   z-index: 1;
@@ -525,7 +536,7 @@
   min-height: 14px;
   padding: 2px 3px;
   border-radius: 0;
-  background: color-mix(in srgb, var(--ps-clip) calc(62% + var(--ps-energy, 0) * 38%), var(--ps-bg));
+  background: color-mix(in srgb, var(--ps-clip) 78%, var(--ps-bg));
   color: var(--ps-text);
   font-family: var(--ps-mono);
   font-size: 8px;
@@ -536,25 +547,25 @@
   overflow: hidden;
   text-overflow: ellipsis;
   user-select: none;
-  transition: background 0.15s ease, color 0.15s ease;
+  transition: background 0.15s ease, color 0.15s ease, filter 0.15s ease;
 }
-.ps-player .ps-viz-clip.is-current {
+.ps-player .ps-viz-clip.is-current:not(.is-muted) {
+  z-index: 2;
+  overflow: visible;
   background: var(--ps-clip-on);
   color: var(--ps-btn-text);
-  opacity: 1;
-  animation: ps-clip-pulse 1.1s ease-in-out infinite;
+  animation: ps-clip-pulse 1.6s ease-in-out infinite;
 }
 .ps-player .ps-viz-clip.is-current.is-muted {
-  animation: none;
-  opacity: 1;
+  /* Chosen but silent: keep the muted clip colour; the level bar shows selection. */
+  background: color-mix(in srgb, var(--ps-clip) 78%, var(--ps-bg));
   color: var(--ps-text);
-  background: color-mix(in srgb, var(--ps-clip-on) 46%, var(--ps-bg));
 }
 .ps-player .ps-viz-name {
   position: relative;
   z-index: 4;
   max-width: 100%;
-  color: var(--ps-muted);
+  color: color-mix(in srgb, var(--ps-clip) 55%, var(--ps-muted));
   font-family: var(--ps-mono);
   font-size: 8px;
   letter-spacing: 0.03em;
@@ -565,16 +576,81 @@
   transition: color 0.2s ease;
 }
 .ps-player .ps-viz-name.is-live {
-  color: var(--ps-text);
+  color: var(--ps-clip-on);
 }
 .ps-player .ps-edge { pointer-events: none; }
 .ps-player .ps-edge.is-inter { fill: var(--ps-clip-on); stroke: none; }
 @keyframes ps-clip-pulse {
   0%, 100% {
-    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ps-clip-on) 50%, transparent);
+    background: var(--ps-clip-on);
+    box-shadow: 0 0 0 0 color-mix(in srgb, var(--ps-clip-on) 40%, transparent);
   }
   50% {
-    box-shadow: 0 0 7px 1px color-mix(in srgb, var(--ps-clip-on) 70%, transparent);
+    background: color-mix(in srgb, var(--ps-clip-on) 28%, #fff);
+    box-shadow: 0 0 10px 2px color-mix(in srgb, #fff 55%, var(--ps-clip-on));
+  }
+}
+/* Compact viz: hide clip ids, square cells, vertical track names, fit on-screen. */
+@container ps-player (max-width: 560px) {
+  .ps-box { padding: 12px 12px 10px; }
+  .ps-now { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .ps-controls-col { justify-content: flex-start; }
+  .ps-volume { margin-top: 0; }
+  .ps-title { font-size: 1.08rem; }
+  .ps-artist { font-size: 0.95rem; }
+  .ps-viz {
+    overflow-x: hidden;
+  }
+  .ps-viz-stage {
+    width: 100%;
+    min-width: 0;
+  }
+  .ps-viz-tracks {
+    gap: 4px;
+    justify-content: center;
+    align-items: flex-end;
+  }
+  .ps-viz-track {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 44px;
+    gap: 6px;
+  }
+  .ps-viz-clips {
+    gap: 6px;
+    --ps-level-pad: 4px;
+  }
+  .ps-viz-clip {
+    aspect-ratio: 1;
+    min-height: 0;
+    padding: 0;
+    font-size: 0;
+    line-height: 0;
+    color: transparent;
+    text-overflow: clip;
+  }
+  .ps-viz-name {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    height: 4.5em;
+    width: auto;
+    max-width: none;
+    margin: 0 auto;
+    font-size: 8px;
+    letter-spacing: 0.04em;
+    text-align: start;
+  }
+}
+@container ps-player (max-width: 380px) {
+  .ps-viz-tracks { gap: 3px; }
+  .ps-viz-track { max-width: 32px; gap: 5px; }
+  .ps-viz-clips {
+    gap: 5px;
+    --ps-level-pad: 3px;
+  }
+  .ps-viz-name {
+    height: 4em;
+    font-size: 7px;
   }
 }
 @media (max-width: 640px) {
@@ -584,8 +660,49 @@
   .ps-player .ps-volume { margin-top: 0; }
   .ps-player .ps-title { font-size: 1.08rem; }
   .ps-player .ps-artist { font-size: 0.95rem; }
-  .ps-player .ps-viz-track { min-width: 44px; max-width: 88px; }
-  .ps-player .ps-viz-tracks { gap: 8px; }
+  .ps-player .ps-viz { overflow-x: hidden; }
+  .ps-player .ps-viz-stage { width: 100%; min-width: 0; }
+  .ps-player .ps-viz-tracks {
+    gap: 4px;
+    justify-content: center;
+    align-items: flex-end;
+  }
+  .ps-player .ps-viz-track {
+    flex: 1 1 0;
+    min-width: 0;
+    max-width: 44px;
+    gap: 6px;
+  }
+  .ps-player .ps-viz-clips { gap: 6px; --ps-level-pad: 4px; }
+  .ps-player .ps-viz-clip {
+    aspect-ratio: 1;
+    min-height: 0;
+    padding: 0;
+    font-size: 0;
+    line-height: 0;
+    color: transparent;
+    text-overflow: clip;
+  }
+  .ps-player .ps-viz-name {
+    writing-mode: vertical-rl;
+    text-orientation: mixed;
+    height: 4.5em;
+    width: auto;
+    max-width: none;
+    margin: 0 auto;
+    font-size: 8px;
+    letter-spacing: 0.04em;
+    text-align: start;
+  }
+}
+@media (max-width: 400px) {
+  .ps-player .ps-viz-tracks { gap: 3px; }
+  .ps-player .ps-viz-track { max-width: 32px; gap: 5px; }
+  .ps-player .ps-viz-clips { gap: 5px; --ps-level-pad: 3px; }
+  .ps-player .ps-viz-name {
+    height: 4em;
+    font-size: 7px;
+  }
 }
 @media (prefers-reduced-motion: reduce) {
   .ps-player .ps-spinner,
@@ -1916,6 +2033,7 @@
     }
 
     // One column per track. Inter-group weights are ribbons between columns.
+    // Each track gets a muted/bright colour pair (8 pairs, reused after that).
     buildViz() {
       const tracksWrap = this.ui?.vizTracks;
       const svg = this.ui?.vizEdges;
@@ -1930,9 +2048,17 @@
       const tracks = this.pkg?.tracks || [];
       if (!tracks.length) return;
 
-      for (const track of tracks) {
+      const TRACK_COLORS = 8;
+      const clipColorIndex = new Map();
+
+      tracks.forEach((track, trackIndex) => {
+        const colorIndex = trackIndex % TRACK_COLORS;
         const col = document.createElement('div');
         col.className = 'ps-viz-track';
+        col.dataset.trackColor = String(colorIndex);
+        col.style.setProperty('--ps-clip', `var(--ps-track-${colorIndex}-muted)`);
+        col.style.setProperty('--ps-clip-on', `var(--ps-track-${colorIndex}-bright)`);
+        col.style.setProperty('--ps-level', `var(--ps-track-${colorIndex}-bright)`);
 
         const clipsWrap = document.createElement('div');
         clipsWrap.className = 'ps-viz-clips';
@@ -1940,15 +2066,14 @@
         level.className = 'ps-viz-level';
         level.setAttribute('aria-hidden', 'true');
         clipsWrap.appendChild(level);
-        const boxes = track.clips.map((clip, i) => {
+        const boxes = track.clips.map((clip) => {
           const box = document.createElement('span');
           box.className = 'ps-viz-clip';
-          const energy = track.clips.length <= 1 ? 1 : i / (track.clips.length - 1);
-          box.style.setProperty('--ps-energy', energy.toFixed(3));
           box.textContent = clip.id;
           box.title = clip.id;
           clipsWrap.appendChild(box);
           this.clipEls.set(clip.id, box);
+          clipColorIndex.set(clip.id, colorIndex);
           return box;
         });
 
@@ -1961,7 +2086,7 @@
         this.vizLevels.set(track, { bar: level, clips: clipsWrap, name });
         tracksWrap.appendChild(col);
         this.vizBoxes.set(track, boxes);
-      }
+      });
 
       const links = [];
       for (const track of tracks) links.push(...matrixLinks('inter', track.inter, true));
@@ -1972,6 +2097,10 @@
         const path = document.createElementNS(SVG_NS, 'path');
         path.setAttribute('class', 'ps-edge is-inter');
         path.setAttribute('opacity', '0');
+        const toColor = clipColorIndex.get(link.toId);
+        if (toColor != null) {
+          path.style.setProperty('--ps-clip-on', `var(--ps-track-${toColor}-bright)`);
+        }
         const title = document.createElementNS(SVG_NS, 'title');
         title.textContent = `${link.fromId} → ${link.toId} ×${formatWeight(link.weight)}`;
         path.appendChild(title);
@@ -2011,7 +2140,6 @@
       if (this.vizLevels) {
         for (const level of this.vizLevels.values()) {
           level.bar.style.height = '0px';
-          level.bar.classList.remove('is-muted');
           level.name.classList.remove('is-live');
         }
       }
@@ -2022,8 +2150,8 @@
       }
     }
 
-    // Highlight the current clip per track: blue + pulse when audible, a dim
-    // blue when the current selection is muted (silent but still selected).
+    // Highlight the current clip per track: bright + pulse when audible.
+    // Muted choices stay muted-coloured; the level bar still marks selection.
     renderViz() {
       if (!this.vizBoxes) return;
       const current = new Set();
@@ -2041,8 +2169,8 @@
         });
         const level = this.vizLevels?.get(track);
         if (level) {
-          level.name.classList.toggle('is-live', chosenIndex >= 0 && !muted);
-          this.placeLevel(level, boxes, chosenIndex, muted);
+          level.name.classList.toggle('is-live', chosenIndex >= 0);
+          this.placeLevel(level, boxes, chosenIndex);
         }
       }
       this.paintEdges(current);
@@ -2050,11 +2178,11 @@
 
     // Bar frames the clips from the bottom of the column to the chosen clip,
     // with the same padding on every side. Higher clips make a taller bar.
-    placeLevel(level, boxes, index, muted) {
+    // Always uses the bright track colour so muted choices still read as selected.
+    placeLevel(level, boxes, index) {
       const stack = level.clips.offsetHeight;
       if (stack <= 0) return;
       level.bar.style.setProperty('--ps-stack', `${stack}px`);
-      level.bar.classList.toggle('is-muted', index >= 0 && muted);
       if (index < 0) {
         level.bar.style.height = '0px';
         return;
@@ -2070,8 +2198,7 @@
         const level = this.vizLevels.get(track);
         if (!level) continue;
         const index = boxes.findIndex((box) => box.classList.contains('is-current'));
-        const muted = index >= 0 && boxes[index].classList.contains('is-muted');
-        this.placeLevel(level, boxes, index, muted);
+        this.placeLevel(level, boxes, index);
       }
     }
 

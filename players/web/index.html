@@ -6,6 +6,8 @@
   <title>Procsong Web Player — infinite procedural music</title>
   <meta name="description" content="A simple web player for Procsong libraries. Procsong is a clip-based infinite music format — load a library, pick a song, bookmark the page, and share it.">
   <meta name="theme-color" content="#e4b45a">
+  <link rel="icon" href="../../Logo.png" type="image/png">
+  <link rel="apple-touch-icon" href="../../Logo.png">
   <link rel="canonical" href="https://michaeldowd2.github.io/procsong/players/web/">
 
   <meta property="og:type" content="website">
@@ -62,13 +64,38 @@
       padding: 36px 20px 56px;
     }
 
-    .brand-mark {
-      margin: 0 0 6px;
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin: 0 0 8px;
+    }
+
+    .brand-logo {
+      display: block;
+      width: 42px;
+      height: auto;
+      flex: 0 0 auto;
+      filter: drop-shadow(0 0 10px rgba(94, 224, 255, 0.35));
+    }
+
+    .brand-wordmark {
+      display: block;
+      height: 28px;
+      width: auto;
+      flex: 0 1 auto;
+      max-width: min(220px, 48vw);
+      transform: translateY(2px);
+    }
+
+    .brand-version {
+      margin: 0;
       font: 500 0.85rem/1.2 var(--mono);
       letter-spacing: 0.16em;
       text-transform: uppercase;
       color: var(--neon);
       text-shadow: 0 0 12px rgba(255, 79, 216, 0.35);
+      flex: 0 0 auto;
     }
 
     h1 {
@@ -312,7 +339,11 @@
   </style>
 </head>
 <body>
-  <p class="brand-mark">Procsong v2</p>
+  <div class="brand">
+    <img class="brand-logo" src="../../Logo.png" width="42" height="42" alt="">
+    <img class="brand-wordmark" src="../../Logo2.png" height="28" alt="Procsong">
+    <p class="brand-version">v2</p>
+  </div>
   <h1>Web Player</h1>
   <p class="lede">
     A simple browser player for any hosted Procsong library — yours or anyone else's.
@@ -324,18 +355,17 @@
   <aside class="about-procsong" aria-labelledby="about-procsong-heading">
     <h2 id="about-procsong-heading">What is a Procsong?</h2>
     <p>
-      Procsong is an open format for <em>deterministic, clip-based, infinite music</em>.
-      A package is a zip of short audio clips plus a <code>definition.yml</code>
-      (distributed as <code>.zip</code> or <code>.prcs</code>). With the same package and seed,
-      any compliant player produces the same arrangement — tracks of different lengths
-      overlap and recombine forever, with no fixed loop.
+      An open format for deterministic, clip-based infinite music.
+      A package is audio clips plus a <code>definition.yml</code>
+      (<code>.zip</code> / <code>.prcs</code>). Same package and seed always
+      play the same arrangement — tracks recombine forever, with no fixed loop.
     </p>
     <ul class="uses">
       <li>Background music</li>
       <li>Shops &amp; cafes</li>
       <li>Study music</li>
-      <li>Game Music</li>
-      <li>Dance and Instrument Practice</li>
+      <li>Game music</li>
+      <li>Dance &amp; instrument practice</li>
       <li>Art installations</li>
     </ul>
   </aside>
