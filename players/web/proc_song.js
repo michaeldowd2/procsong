@@ -458,7 +458,10 @@
   border-top: 1px solid var(--ps-line);
   overflow-x: auto;
   overflow-y: hidden;
-  contain: inline-size;
+  --ps-tracks: 1;
+  --ps-clips: 1;
+  container-type: inline-size;
+  container-name: ps-viz;
 }
 .ps-player .ps-viz[hidden] { display: none !important; }
 .ps-player .ps-viz-stage {
@@ -485,6 +488,17 @@
   justify-content: safe center;
   gap: 8px;
   width: 100%;
+  /* Square size for the compact layout. --ps-share fits every track across
+     the viz; --ps-from-h shrinks the square so the tallest track stays within
+     the viz width, 60vh, and 360px. buildViz sets the counts. */
+  --ps-gap-x: 4px;
+  --ps-gap-y: 6px;
+  --ps-name-h: 42px;
+  --ps-cell-cap: 44px;
+  --ps-stack-max: min(100cqi, 60vh, 360px);
+  --ps-share: calc((100cqi - (var(--ps-tracks, 1) - 1) * var(--ps-gap-x)) / var(--ps-tracks, 1));
+  --ps-from-h: calc((var(--ps-stack-max) - var(--ps-name-h) - (var(--ps-clips, 1) - 1) * var(--ps-gap-y)) / var(--ps-clips, 1));
+  --ps-cell: max(14px, min(var(--ps-cell-cap), var(--ps-share), var(--ps-from-h)));
 }
 .ps-player .ps-viz-track {
   display: flex;
@@ -590,37 +604,36 @@
     box-shadow: 0 0 10px 2px color-mix(in srgb, #fff 55%, var(--ps-clip-on));
   }
 }
-/* Compact viz: hide clip ids, square cells, vertical track names, fit on-screen. */
+/* Compact layout when the player itself is narrow (an embed), not only when
+   the browser viewport is. Selectors keep the .ps-player prefix: a container
+   query does not add specificity, and the base .ps-player rules would
+   otherwise keep wide columns, clip names, and — via aspect-ratio — a very
+   tall grid. */
 @container ps-player (max-width: 560px) {
-  .ps-box { padding: 12px 12px 10px; }
-  .ps-now { grid-template-columns: minmax(0, 1fr); gap: 10px; }
-  .ps-controls-col { justify-content: flex-start; }
-  .ps-volume { margin-top: 0; }
-  .ps-title { font-size: 1.08rem; }
-  .ps-artist { font-size: 0.95rem; }
-  .ps-viz {
-    overflow-x: hidden;
-  }
-  .ps-viz-stage {
-    width: 100%;
-    min-width: 0;
-  }
-  .ps-viz-tracks {
-    gap: 4px;
+  .ps-player .ps-box { padding: 12px 12px 10px; }
+  .ps-player .ps-now { grid-template-columns: minmax(0, 1fr); gap: 10px; }
+  .ps-player .ps-controls-col { justify-content: flex-start; }
+  .ps-player .ps-volume { margin-top: 0; }
+  .ps-player .ps-title { font-size: 1.08rem; }
+  .ps-player .ps-artist { font-size: 0.95rem; }
+  .ps-player .ps-viz { overflow-x: hidden; }
+  .ps-player .ps-viz-stage { width: 100%; min-width: 0; }
+  .ps-player .ps-viz-tracks {
+    gap: var(--ps-gap-x);
     justify-content: center;
     align-items: flex-end;
   }
-  .ps-viz-track {
+  .ps-player .ps-viz-track {
     flex: 1 1 0;
     min-width: 0;
-    max-width: 44px;
+    max-width: var(--ps-cell, 44px);
     gap: 6px;
   }
-  .ps-viz-clips {
-    gap: 6px;
+  .ps-player .ps-viz-clips {
+    gap: var(--ps-gap-y);
     --ps-level-pad: 4px;
   }
-  .ps-viz-clip {
+  .ps-player .ps-viz-clip {
     aspect-ratio: 1;
     min-height: 0;
     padding: 0;
@@ -629,7 +642,7 @@
     color: transparent;
     text-overflow: clip;
   }
-  .ps-viz-name {
+  .ps-player .ps-viz-name {
     writing-mode: vertical-rl;
     text-orientation: mixed;
     height: 4.5em;
@@ -642,13 +655,15 @@
   }
 }
 @container ps-player (max-width: 380px) {
-  .ps-viz-tracks { gap: 3px; }
-  .ps-viz-track { max-width: 32px; gap: 5px; }
-  .ps-viz-clips {
-    gap: 5px;
-    --ps-level-pad: 3px;
+  .ps-player .ps-viz-tracks {
+    --ps-gap-x: 3px;
+    --ps-gap-y: 5px;
+    --ps-name-h: 33px;
+    --ps-cell-cap: 32px;
   }
-  .ps-viz-name {
+  .ps-player .ps-viz-track { gap: 5px; }
+  .ps-player .ps-viz-clips { --ps-level-pad: 3px; }
+  .ps-player .ps-viz-name {
     height: 4em;
     font-size: 7px;
   }
@@ -663,17 +678,17 @@
   .ps-player .ps-viz { overflow-x: hidden; }
   .ps-player .ps-viz-stage { width: 100%; min-width: 0; }
   .ps-player .ps-viz-tracks {
-    gap: 4px;
+    gap: var(--ps-gap-x);
     justify-content: center;
     align-items: flex-end;
   }
   .ps-player .ps-viz-track {
     flex: 1 1 0;
     min-width: 0;
-    max-width: 44px;
+    max-width: var(--ps-cell, 44px);
     gap: 6px;
   }
-  .ps-player .ps-viz-clips { gap: 6px; --ps-level-pad: 4px; }
+  .ps-player .ps-viz-clips { gap: var(--ps-gap-y); --ps-level-pad: 4px; }
   .ps-player .ps-viz-clip {
     aspect-ratio: 1;
     min-height: 0;
@@ -696,9 +711,14 @@
   }
 }
 @media (max-width: 400px) {
-  .ps-player .ps-viz-tracks { gap: 3px; }
-  .ps-player .ps-viz-track { max-width: 32px; gap: 5px; }
-  .ps-player .ps-viz-clips { gap: 5px; --ps-level-pad: 3px; }
+  .ps-player .ps-viz-tracks {
+    --ps-gap-x: 3px;
+    --ps-gap-y: 5px;
+    --ps-name-h: 33px;
+    --ps-cell-cap: 32px;
+  }
+  .ps-player .ps-viz-track { gap: 5px; }
+  .ps-player .ps-viz-clips { --ps-level-pad: 3px; }
   .ps-player .ps-viz-name {
     height: 4em;
     font-size: 7px;
@@ -2047,6 +2067,9 @@
 
       const tracks = this.pkg?.tracks || [];
       if (!tracks.length) return;
+      const clipCount = Math.max(1, ...tracks.map((track) => track.clips.length));
+      this.ui.viz.style.setProperty('--ps-tracks', String(tracks.length));
+      this.ui.viz.style.setProperty('--ps-clips', String(clipCount));
 
       const TRACK_COLORS = 8;
       const clipColorIndex = new Map();
